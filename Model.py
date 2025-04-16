@@ -26,14 +26,32 @@ class GCNModel(nn.Module):
 		self.sparse = True
 		self.gcn_layer_num = 1
 		self.edgeDropper = SpAdjDropEdge(args.keepRate)
-		self.reg_weight = 1e-5
+		self.reg_weight = 1e-4
 		# self.batch_size = 1024
 		self.modal_fusion = modal_fusion
 
+		# 新增可学习权重参数
+		self.origin_weight = nn.Parameter(torch.ones(1))
+		self.generation_weight = nn.Parameter(torch.ones(1))
+		self.generation_weight2 = nn.Parameter(torch.ones(1))
+		self.image_generation_weight = nn.Parameter(torch.ones(1))
+		self.image_generation_weight = nn.Parameter(torch.ones(1))
+		self.img_weight, self.txt_weight = nn.Parameter(torch.ones(1)), nn.Parameter(torch.ones(1))
+		if audio_embedding is not None:
+			self.aud_weight = nn.Parameter(torch.ones(1))
+
 		# modal feature embedding
-		self.image_embedding = image_embedding
-		self.text_embedding = text_embedding
-		self.audio_embedding = audio_embedding
+		if args.data == 'baby':
+			self.image_embedding = denoise_norm(image_embedding, weight=args.image_norm)
+			self.text_embedding = denoise_norm(text_embedding, weight=args.text_norm)
+			self.audio_embedding = audio_embedding
+			if audio_embedding is not None:
+				self.audio_embedding = denoise_norm(audio_embedding, weight=args.audio_norm)
+		else:
+			# modal feature embedding
+			self.image_embedding = image_embedding
+			self.text_embedding = text_embedding
+			self.audio_embedding = audio_embedding
 
 		# user & item embdding
 		self.user_embedding = nn.Embedding(args.user, args.latdim)    # self.user_embedding .shape: torch.Size([9308, 64]) self.item_id_embedding.shape: torch.Size([6710, 64])
@@ -43,12 +61,6 @@ class GCNModel(nn.Module):
 		self.fusion_weight = nn.Parameter(torch.ones(3))
 		self.res_scale = nn.Parameter(torch.ones(1))
 
-		# 新增可学习权重参数
-		self.origin_weight = nn.Parameter(torch.ones(1))
-		self.generation_weight = nn.Parameter(torch.ones(1))
-		self.img_weight, self.txt_weight = nn.Parameter(torch.ones(1)), nn.Parameter(torch.ones(1))
-		if audio_embedding is not None:
-			self.aud_weight = nn.Parameter(torch.ones(1))
 		
 		# 初始化权重参数
 		nn.init.normal_(self.img_weight, mean=1.0, std=0.1)
@@ -59,18 +71,10 @@ class GCNModel(nn.Module):
 		# modal feature projection
 		if self.image_embedding is not None:
 			self.image_residual_project = nn.Sequential(
-				nn.Linear(in_features=self.image_embedding.shape[1], out_features=self.image_embedding.shape[1]//4),
-				nn.BatchNorm1d(self.image_embedding.shape[1]//4),
-				nn.LeakyReLU(negative_slope=0.2),
-				nn.Dropout(0.1),
-				nn.Linear(in_features=self.image_embedding.shape[1]//4, out_features=self.image_embedding.shape[1]//8),
-				nn.BatchNorm1d(self.image_embedding.shape[1]//8),
-				nn.LeakyReLU(negative_slope=0.2),
-				nn.Dropout(0.1),
-				nn.Linear(in_features=self.image_embedding.shape[1]//8, out_features=args.latdim),
+				nn.Linear(in_features=self.image_embedding.shape[1], out_features=args.latdim),
 				nn.BatchNorm1d(args.latdim),
 				nn.LeakyReLU(negative_slope=0.2),
-				nn.Dropout(0.1),
+				nn.Dropout(0.1)
 			)
 			self.image_modal_project = nn.Sequential(
 				nn.Linear(in_features=args.latdim, out_features=args.latdim),
@@ -81,18 +85,10 @@ class GCNModel(nn.Module):
 
 		if self.text_embedding is not None:
 			self.text_residual_project = nn.Sequential(
-				nn.Linear(in_features=self.text_embedding.shape[1], out_features=self.text_embedding.shape[1]//4),
-				nn.BatchNorm1d(self.text_embedding.shape[1]//4),
-				nn.LeakyReLU(negative_slope=0.2),
-				nn.Dropout(0.1),
-				nn.Linear(in_features=self.text_embedding.shape[1]//4, out_features=self.text_embedding.shape[1]//8),
-				nn.BatchNorm1d(self.text_embedding.shape[1]//8),
-				nn.LeakyReLU(negative_slope=0.2),
-				nn.Dropout(0.1),
-				nn.Linear(in_features=self.text_embedding.shape[1]//8, out_features=args.latdim),
+				nn.Linear(in_features=self.text_embedding.shape[1], out_features=args.latdim),
 				nn.BatchNorm1d(args.latdim),
 				nn.LeakyReLU(negative_slope=0.2),
-				nn.Dropout(0.1),
+				nn.Dropout(0.1)
 			)
 			self.text_modal_project = nn.Sequential(
 				nn.Linear(in_features=args.latdim, out_features=args.latdim),
@@ -104,10 +100,6 @@ class GCNModel(nn.Module):
 		if self.audio_embedding is not None:
 			self.audio_residual_project = nn.Sequential(
 				nn.Linear(in_features=self.audio_embedding.shape[1], out_features=args.latdim),
-				nn.BatchNorm1d(args.latdim),
-				nn.LeakyReLU(negative_slope=0.2),
-				nn.Dropout(0.1),
-				nn.Linear(in_features=args.latdim, out_features=args.latdim),
 				nn.BatchNorm1d(args.latdim),
 				nn.LeakyReLU(negative_slope=0.2),
 				nn.Dropout(0.1)
@@ -141,20 +133,20 @@ class GCNModel(nn.Module):
 		)
 
 
-		# self.caculate_common = nn.Sequential(
-		#     nn.Linear(args.latdim, args.latdim),
-		# 	nn.BatchNorm1d(args.latdim),
-		#     nn.Tanh(),
-		#     nn.Linear(args.latdim, 1, bias=False)
-		# )
-		
 		self.caculate_common = nn.Sequential(
-			nn.Linear(args.latdim, args.latdim),
-			nn.LeakyReLU(negative_slope=0.2),
-			nn.Linear(args.latdim, args.latdim//2),  # 增加隐藏层
-			nn.LayerNorm(args.latdim//2),
-			nn.Linear(args.latdim//2, 1, bias=False)
+		    nn.Linear(args.latdim, args.latdim),
+			nn.BatchNorm1d(args.latdim),
+		    nn.Tanh(),
+		    nn.Linear(args.latdim, 1, bias=False)
 		)
+		
+		# self.caculate_common = nn.Sequential(
+		# 	nn.Linear(args.latdim, args.latdim),
+		# 	nn.LeakyReLU(negative_slope=0.2),
+		# 	nn.Linear(args.latdim, args.latdim//2),  # 增加隐藏层
+		# 	nn.LayerNorm(args.latdim//2),
+		# 	nn.Linear(args.latdim//2, 1, bias=False)
+		# )
 		self.init_modal_weight()
 
 	def init_modal_weight(self):
@@ -252,8 +244,6 @@ class GCNModel(nn.Module):
 			audio_modal_feature = self.res_scale * x + audio_modal_feature
 		return audio_modal_feature
 	
-
-
 	def multimodal_feature_fusion_adj(self, diffusion_ii_image_adj, diffusion_ii_text_adj, diffusion_ii_audio_adj):
 		# 添加可学习的模态权重
 		image_weight = torch.sigmoid(self.fusion_weight[0])
@@ -302,11 +292,9 @@ class GCNModel(nn.Module):
 			# temp_embeddings1 = torch.sparse.mm(adj1, cat_embedding)
 			# cat_embedding = temp_embeddings1
 			# all_embeddings += [cat_embedding]
-
 			temp_embeddings2 = torch.sparse.mm(adj, cat_embedding)
 			cat_embedding = temp_embeddings2
 			all_embeddings += [cat_embedding]
-		
 		all_embeddings = torch.stack(all_embeddings, dim=1)
 		all_embeddings = all_embeddings.mean(dim=1, keepdim=False)
 		content_embedding = all_embeddings
@@ -451,7 +439,7 @@ class GCNModel(nn.Module):
 		ret += self.item_id_embedding.weight.norm(2).square()
 		return ret 
 
-
+#	def forward(self, R, original_ui_adj, diffusion_ui_image_adj, diffusion_ui_text_adj, diffusion_ui_audio_adj, diffusion_ii_image_adj, diffusion_ii_text_adj, diffusion_ii_audio_adj=None, diffusion_modal_fusion_ii_matrix=None):
 	def forward(self, R, original_ui_adj, diffusion_ui_image_adj, diffusion_ii_image_adj, diffusion_ii_text_adj, diffusion_ii_audio_adj=None, diffusion_modal_fusion_ii_matrix=None):
 		'''
 			GCN 前向过程:
@@ -485,27 +473,40 @@ class GCNModel(nn.Module):
 		# print("original_ui_adj:", original_ui_adj)
 		# print("diffusion_ui_adj:", diffusion_ui_adj)
 		content_embedding1 = self.user_item_GCN(original_ui_adj)
-		content_embedding2 = self.user_item_GCN( diffusion_ui_image_adj)
-		#print("content_embedding_image_modal:", content_embedding_image_modal)
-		# content_embedding_text_modal = self.user_item_GCN(original_ui_adj, diffusion_ui_text_adj)
-		#content_embedding = (content_embedding_image_modal +  content_embedding_text_modal) / 
-		weights = F.softmax(torch.stack([self.origin_weight, self.generation_weight]), dim=0)
-		content_embedding = (
-				weights[0] * content_embedding1 + 
-				weights[1] * content_embedding2
-			)
-		# if args.data == 'tiktok':
-		# 	content_embedding_audio_modal = self.user_item_GCN(original_ui_adj, diffusion_ui_audio_adj)
+		if args.data == 'baby':
+			content_embedding = self.user_item_GCN(original_ui_adj + diffusion_ui_image_adj)
+		
+		else:
+			content_embedding1 = self.user_item_GCN(original_ui_adj)
+			content_embedding2 = self.user_item_GCN(diffusion_ui_image_adj)
+			# content_embedding = self.user_item_GCN(original_ui_adj + diffusion_ui_image_adj)
+
+			# content_embedding_image_modal = self.user_item_GCN(diffusion_ui_image_adj)
+			#print("content_embedding_image_modal:", content_embedding_image_modal)
+			# content_embedding_text_modal = self.user_item_GCN(diffusion_ui_text_adj)
+			#content_embedding = (content_embedding_image_modal +  content_embedding_text_modal) / 
+	
+			weights = F.softmax(torch.stack([self.origin_weight, self.generation_weight]), dim=0)
+			# print("weights:", weights)
+			# if args.data == 'tiktok':
+			# 	content_embedding_audio_modal = self.user_item_GCN(diffusion_ui_audio_adj)
+			weight_1 = weights[0]
+			weight_2 = weights[1]
+			content_embedding = (
+					weight_1 * content_embedding1 + 
+					weight_2 * content_embedding2 
+				)
+		# content_embedding = content_embedding1
 		#print("user-item gcn-------->content_embedding.shape", content_embedding.shape) # torch.Size([16018, 64])
 			#content_embedding = (0.7 * content_embedding_image_modal + 0.2 *  content_embedding_text_modal +  0.1 * content_embedding_audio_modal) 
 			# 使用softmax归一化权重
-			# weights = F.softmax(torch.stack([self.img_weight, self.txt_weight, self.aud_weight]), dim=0)
-			# content_embedding = (
-			# 	weights[0] * content_embedding_image_modal + 
-			# 	weights[1] * content_embedding_text_modal +
-			# 	weights[2] * content_embedding_audio_modal
-			# )
-			   
+		# weights = F.softmax(torch.stack([self.img_weight, self.txt_weight, self.aud_weight]), dim=0)
+		# content_embedding = (
+		# 	weights[0] * content_embedding_image_modal + 
+		# 	weights[1] * content_embedding_text_modal +
+		# 	weights[2] * content_embedding_audio_modal
+		# )
+			
 		if args.data == 'tiktok':
 			
 			if self.modal_fusion == True:
@@ -515,6 +516,8 @@ class GCNModel(nn.Module):
 
 			# 物品-物品的GCN
 			image_ui_embedding, text_ui_embedding, audio_ui_embedding = self.item_item_GCN(R, original_ui_adj, diffusion_ii_image_adj, diffusion_ii_text_adj, diffusion_ii_audio_adj)
+			######################################NORM#######################################
+			#image_ui_embedding, text_ui_embedding, audio_ui_embedding = denoise_norm(image_ui_embedding), denoise_norm(text_ui_embedding), denoise_norm(audio_ui_embedding)
 
 			sepcial_image_ui_embedding, special_text_ui_embedding, special_audio_ui_embedding, common_embedding = self.gate_attention_fusion(image_ui_embedding, text_ui_embedding, audio_ui_embedding)
 			image_prefer_embedding = self.gate_image_modal(content_embedding) 
@@ -525,7 +528,8 @@ class GCNModel(nn.Module):
 			special_text_ui_embedding = torch.multiply(text_prefer_embedding, special_text_ui_embedding)
 			special_audio_ui_embedding = torch.multiply(audio_prefer_embedding, special_audio_ui_embedding)
 			weights = F.softmax(torch.stack([self.img_weight, self.txt_weight, self.aud_weight]), dim=0)
-			side_embedding = (weights[0] * sepcial_image_ui_embedding + weights[1] * special_text_ui_embedding + weights[2] * special_audio_ui_embedding + common_embedding) / 4
+			side_embedding = ( sepcial_image_ui_embedding +  special_text_ui_embedding + special_audio_ui_embedding + common_embedding) / 4
+			#side_embedding = (weights[0] * sepcial_image_ui_embedding + weights[1] * special_text_ui_embedding + weights[2] * special_audio_ui_embedding + common_embedding) / 4
 			all_embedding = content_embedding + side_embedding
 		else:
 			if self.modal_fusion == True:
@@ -534,13 +538,18 @@ class GCNModel(nn.Module):
 
 
 			image_ui_embedding, text_ui_embedding = self.item_item_GCN(R, original_ui_adj, diffusion_ii_image_adj, diffusion_ii_text_adj, diffusion_ii_audio_adj=None)
+			######################################NORM#######################################
+			#image_ui_embedding, text_ui_embedding = denoise_norm(image_ui_embedding), denoise_norm(text_ui_embedding)
+
 			sepcial_image_ui_embedding, special_text_ui_embedding, common_embedding = self.gate_attention_fusion(image_ui_embedding, text_ui_embedding, audio_ui_embedding=None)
 			image_prefer_embedding = self.gate_image_modal(content_embedding) 
 			text_prefer_embedding = self.gate_text_modal(content_embedding) 
 			sepcial_image_ui_embedding = torch.multiply(image_prefer_embedding, sepcial_image_ui_embedding)
 			special_text_ui_embedding = torch.multiply(text_prefer_embedding, special_text_ui_embedding)
 
-			side_embedding = (sepcial_image_ui_embedding + special_text_ui_embedding + common_embedding) / 3
+			side_embedding = (sepcial_image_ui_embedding + special_text_ui_embedding + common_embedding) / 4
+			# weights = F.softmax(torch.stack([self.img_weight, self.txt_weight]), dim=0)
+			# side_embedding = (weights[0] * sepcial_image_ui_embedding + weights[1] *  special_text_ui_embedding + common_embedding) 
 			all_embedding = content_embedding + side_embedding
 		
 		# split 
@@ -549,207 +558,24 @@ class GCNModel(nn.Module):
 		return all_embeddings_users, all_embeddings_items, side_embedding, content_embedding
 
 
-class Model(nn.Module):
-	def __init__(self, image_embedding, text_embedding, audio_embedding=None):
-		super(Model, self).__init__()
 
-		self.uEmbeds = nn.Parameter(init(torch.empty(args.user, args.latdim)))
-		self.iEmbeds = nn.Parameter(init(torch.empty(args.item, args.latdim)))
-		self.gcnLayers = nn.Sequential(*[GCNLayer(args.latdim, args.latdim) for i in range(args.gnn_layer)])
 
-		self.edgeDropper = SpAdjDropEdge(args.keepRate)
+def denoise_norm(emb1, weight=0.1):
+	'''
+		embedding denoise function
+	'''
+	# 核范数降噪
+	# print("weight:", weight, "weight.item:", weight.item())
+	# weight = weight.cuda()
+	nuclear_norm_emb1= torch.linalg.svdvals(emb1).sum()
 
-		if args.trans == 1:
-			self.image_trans = nn.Linear(args.image_feat_dim, args.latdim)
-			self.text_trans = nn.Linear(args.text_feat_dim, args.latdim)
-		elif args.trans == 0:
-			self.image_trans = nn.Parameter(init(torch.empty(size=(args.image_feat_dim, args.latdim))))
-			self.text_trans = nn.Parameter(init(torch.empty(size=(args.text_feat_dim, args.latdim))))
-		else:
-			self.image_trans = nn.Parameter(init(torch.empty(size=(args.image_feat_dim, args.latdim))))
-			self.text_trans = nn.Linear(args.text_feat_dim, args.latdim)
-		if audio_embedding != None:
-			if args.trans == 1:
-				self.audio_trans = nn.Linear(args.audio_feat_dim, args.latdim)
-			else:
-				self.audio_trans = nn.Parameter(init(torch.empty(size=(args.audio_feat_dim, args.latdim))))
+	# 可以根据需要调整核范数的权重
+	# print("emb1.device:", emb1.device, "weight.device:", weight.device, "nuclear_norm_emb1:", nuclear_norm_emb1.device)
+	emb1_norm = emb1 - weight * nuclear_norm_emb1
 
-		self.image_embedding = image_embedding
-		self.text_embedding = text_embedding
-		if audio_embedding != None:
-			self.audio_embedding = audio_embedding
-		else:
-			self.audio_embedding = None
+	return emb1_norm
 
-		if audio_embedding != None:
-			self.modal_weight = nn.Parameter(torch.Tensor([0.3333, 0.3333, 0.3333]))
-		else:
-			self.modal_weight = nn.Parameter(torch.Tensor([0.5, 0.5]))
-		self.softmax = nn.Softmax(dim=0)
 
-		self.dropout = nn.Dropout(p=0.1)
-
-		self.leakyrelu = nn.LeakyReLU(0.2)
-				
-	def getItemEmbeds(self):
-		return self.iEmbeds
-	
-	def getUserEmbeds(self):
-		return self.uEmbeds
-	
-	def getImageFeats(self):
-		if args.trans == 0 or args.trans == 2:
-			image_feats = self.leakyrelu(torch.mm(self.image_embedding, self.image_trans))
-			return image_feats
-		else:
-			return self.image_trans(self.image_embedding)
-	
-	def getTextFeats(self):
-		if args.trans == 0:
-			text_feats = self.leakyrelu(torch.mm(self.text_embedding, self.text_trans))
-			return text_feats
-		else:
-			return self.text_trans(self.text_embedding)
-
-	def getAudioFeats(self):
-		if self.audio_embedding == None:
-			return None
-		else:
-			if args.trans == 0:
-				audio_feats = self.leakyrelu(torch.mm(self.audio_embedding, self.audio_trans))
-			else:
-				audio_feats = self.audio_trans(self.audio_embedding)
-		return audio_feats
-
-	def forward_MM(self, adj, image_adj, text_adj, audio_adj=None):
-		if args.trans == 0:
-			image_feats = self.leakyrelu(torch.mm(self.image_embedding, self.image_trans))
-			text_feats = self.leakyrelu(torch.mm(self.text_embedding, self.text_trans))
-		elif args.trans == 1:
-			image_feats = self.image_trans(self.image_embedding)
-			text_feats = self.text_trans(self.text_embedding)
-		else:
-			image_feats = self.leakyrelu(torch.mm(self.image_embedding, self.image_trans))
-			text_feats = self.text_trans(self.text_embedding)
-
-		if audio_adj != None:
-			if args.trans == 0:
-				audio_feats = self.leakyrelu(torch.mm(self.audio_embedding, self.audio_trans))
-			else:
-				audio_feats = self.audio_trans(self.audio_embedding)
-
-		weight = self.softmax(self.modal_weight)
-
-		embedsImageAdj = torch.concat([self.uEmbeds, self.iEmbeds])
-		embedsImageAdj = torch.spmm(image_adj, embedsImageAdj)
-
-		embedsImage = torch.concat([self.uEmbeds, F.normalize(image_feats)])
-		embedsImage = torch.spmm(adj, embedsImage)
-
-		embedsImage_ = torch.concat([embedsImage[:args.user], self.iEmbeds])
-		embedsImage_ = torch.spmm(adj, embedsImage_)
-		embedsImage += embedsImage_
-		
-		embedsTextAdj = torch.concat([self.uEmbeds, self.iEmbeds])
-		embedsTextAdj = torch.spmm(text_adj, embedsTextAdj)
-
-		embedsText = torch.concat([self.uEmbeds, F.normalize(text_feats)])
-		embedsText = torch.spmm(adj, embedsText)
-
-		embedsText_ = torch.concat([embedsText[:args.user], self.iEmbeds])
-		embedsText_ = torch.spmm(adj, embedsText_)
-		embedsText += embedsText_
-
-		if audio_adj != None:
-			embedsAudioAdj = torch.concat([self.uEmbeds, self.iEmbeds])
-			embedsAudioAdj = torch.spmm(audio_adj, embedsAudioAdj)
-
-			embedsAudio = torch.concat([self.uEmbeds, F.normalize(audio_feats)])
-			embedsAudio = torch.spmm(adj, embedsAudio)
-
-			embedsAudio_ = torch.concat([embedsAudio[:args.user], self.iEmbeds])
-			embedsAudio_ = torch.spmm(adj, embedsAudio_)
-			embedsAudio += embedsAudio_
-
-		embedsImage += args.ris_adj_lambda * embedsImageAdj
-		embedsText += args.ris_adj_lambda * embedsTextAdj
-		if audio_adj != None:
-			embedsAudio += args.ris_adj_lambda * embedsAudioAdj
-		if audio_adj == None:
-			embedsModal = weight[0] * embedsImage + weight[1] * embedsText
-		else:
-			embedsModal = weight[0] * embedsImage + weight[1] * embedsText + weight[2] * embedsAudio
-
-		embeds = embedsModal
-		embedsLst = [embeds]
-		for gcn in self.gcnLayers:
-			embeds = gcn(adj, embedsLst[-1])
-			embedsLst.append(embeds)
-		embeds = sum(embedsLst)
-
-		embeds = embeds + args.ris_lambda * F.normalize(embedsModal)
-
-		return embeds[:args.user], embeds[args.user:]
-
-	def forward_cl_MM(self, adj, image_adj, text_adj, audio_adj=None):
-		if args.trans == 0:
-			image_feats = self.leakyrelu(torch.mm(self.image_embedding, self.image_trans))
-			text_feats = self.leakyrelu(torch.mm(self.text_embedding, self.text_trans))
-		elif args.trans == 1:
-			image_feats = self.image_trans(self.image_embedding)
-			text_feats = self.text_trans(self.text_embedding)
-		else:
-			image_feats = self.leakyrelu(torch.mm(self.image_embedding, self.image_trans))
-			text_feats = self.text_trans(self.text_embedding)
-
-		if audio_adj != None:
-			if args.trans == 0:
-				audio_feats = self.leakyrelu(torch.mm(self.audio_embedding, self.audio_trans))
-			else:
-				audio_feats = self.audio_trans(self.audio_embedding)
-
-		embedsImage = torch.concat([self.uEmbeds, F.normalize(image_feats)])
-		embedsImage = torch.spmm(image_adj, embedsImage)
-
-		embedsText = torch.concat([self.uEmbeds, F.normalize(text_feats)])
-		embedsText = torch.spmm(text_adj, embedsText)
-
-		if audio_adj != None:
-			embedsAudio = torch.concat([self.uEmbeds, F.normalize(audio_feats)])
-			embedsAudio = torch.spmm(audio_adj, embedsAudio)
-
-		embeds1 = embedsImage
-		embedsLst1 = [embeds1]
-		for gcn in self.gcnLayers:
-			embeds1 = gcn(adj, embedsLst1[-1])
-			embedsLst1.append(embeds1)
-		embeds1 = sum(embedsLst1)
-
-		embeds2 = embedsText
-		embedsLst2 = [embeds2]
-		for gcn in self.gcnLayers:
-			embeds2 = gcn(adj, embedsLst2[-1])
-			embedsLst2.append(embeds2)
-		embeds2 = sum(embedsLst2)
-
-		if audio_adj != None:
-			embeds3 = embedsAudio
-			embedsLst3 = [embeds3]
-			for gcn in self.gcnLayers:
-				embeds3 = gcn(adj, embedsLst3[-1])
-				embedsLst3.append(embeds3)
-			embeds3 = sum(embedsLst3)
-
-		if audio_adj == None:
-			return embeds1[:args.user], embeds1[args.user:], embeds2[:args.user], embeds2[args.user:]
-		else:
-			return embeds1[:args.user], embeds1[args.user:], embeds2[:args.user], embeds2[args.user:], embeds3[:args.user], embeds3[args.user:]
-
-	def reg_loss(self):
-		ret = 0
-		ret += self.uEmbeds.norm(2).square()
-		ret += self.iEmbeds.norm(2).square()
-		return ret
 
 class GCNLayer(nn.Module):
 	def __init__(self):
@@ -775,215 +601,10 @@ class SpAdjDropEdge(nn.Module):
 
 		return torch.sparse.FloatTensor(newIdxs, newVals, adj.shape)
 		
-class Denoise(nn.Module):
-	def __init__(self, in_dims, out_dims, emb_size, norm=False, dropout=0.5):
-		super(Denoise, self).__init__()
-		self.in_dims = in_dims
-		self.out_dims = out_dims
-		self.time_emb_dim = emb_size
-		self.norm = norm
 
-		self.emb_layer = nn.Linear(self.time_emb_dim, self.time_emb_dim)
-
-		in_dims_temp = [self.in_dims[0] + self.time_emb_dim] + self.in_dims[1:]
-
-		out_dims_temp = self.out_dims
-
-		self.in_layers = nn.ModuleList([nn.Linear(d_in, d_out) for d_in, d_out in zip(in_dims_temp[:-1], in_dims_temp[1:])])
-		self.out_layers = nn.ModuleList([nn.Linear(d_in, d_out) for d_in, d_out in zip(out_dims_temp[:-1], out_dims_temp[1:])])
-
-		self.drop = nn.Dropout(dropout)
-		self.init_weights()
-
-	def init_weights(self):
-		for layer in self.in_layers:
-			size = layer.weight.size()
-			std = np.sqrt(2.0 / (size[0] + size[1]))
-			layer.weight.data.normal_(0.0, std)
-			layer.bias.data.normal_(0.0, 0.001)
-		
-		for layer in self.out_layers:
-			size = layer.weight.size()
-			std = np.sqrt(2.0 / (size[0] + size[1]))
-			layer.weight.data.normal_(0.0, std)
-			layer.bias.data.normal_(0.0, 0.001)
-
-		size = self.emb_layer.weight.size()
-		std = np.sqrt(2.0 / (size[0] + size[1]))
-		self.emb_layer.weight.data.normal_(0.0, std)
-		self.emb_layer.bias.data.normal_(0.0, 0.001)
-
-	def forward(self, x, timesteps, mess_dropout=True):
-		freqs = torch.exp(-math.log(10000) * torch.arange(start=0, end=self.time_emb_dim//2, dtype=torch.float32) / (self.time_emb_dim//2)).cuda()
-		temp = timesteps[:, None].float() * freqs[None]
-		time_emb = torch.cat([torch.cos(temp), torch.sin(temp)], dim=-1)
-		if self.time_emb_dim % 2:
-			time_emb = torch.cat([time_emb, torch.zeros_like(time_emb[:, :1])], dim=-1)
-		emb = self.emb_layer(time_emb)
-		if self.norm:
-			x = F.normalize(x)
-		if mess_dropout:
-			x = self.drop(x)
-		h = torch.cat([x, emb], dim=-1)
-		for i, layer in enumerate(self.in_layers):
-			h = layer(h)
-			h = torch.tanh(h)
-		for i, layer in enumerate(self.out_layers):
-			h = layer(h)
-			if i != len(self.out_layers) - 1:
-				h = torch.tanh(h)
-
-		return h
-
-class GaussianDiffusion(nn.Module):
-	def __init__(self, noise_scale, noise_min, noise_max, steps, beta_fixed=True):
-		super(GaussianDiffusion, self).__init__()
-
-		self.noise_scale = noise_scale
-		self.noise_min = noise_min
-		self.noise_max = noise_max
-		self.steps = steps
-
-		if noise_scale != 0:
-			self.betas = torch.tensor(self.get_betas(), dtype=torch.float64).cuda()
-			if beta_fixed:
-				self.betas[0] = 0.0001
-
-			self.calculate_for_diffusion()
-
-	def get_betas(self):
-		start = self.noise_scale * self.noise_min
-		end = self.noise_scale * self.noise_max
-		variance = np.linspace(start, end, self.steps, dtype=np.float64)
-		alpha_bar = 1 - variance
-		betas = []
-		betas.append(1 - alpha_bar[0])
-		for i in range(1, self.steps):
-			betas.append(min(1 - alpha_bar[i] / alpha_bar[i-1], 0.999))
-		return np.array(betas) 
-
-	def calculate_for_diffusion(self):
-		alphas = 1.0 - self.betas
-		self.alphas_cumprod = torch.cumprod(alphas, axis=0).cuda()
-		self.alphas_cumprod_prev = torch.cat([torch.tensor([1.0]).cuda(), self.alphas_cumprod[:-1]]).cuda()
-		self.alphas_cumprod_next = torch.cat([self.alphas_cumprod[1:], torch.tensor([0.0]).cuda()]).cuda()
-
-		self.sqrt_alphas_cumprod = torch.sqrt(self.alphas_cumprod)
-		self.sqrt_one_minus_alphas_cumprod = torch.sqrt(1.0 - self.alphas_cumprod)
-		self.log_one_minus_alphas_cumprod = torch.log(1.0 - self.alphas_cumprod)
-		self.sqrt_recip_alphas_cumprod = torch.sqrt(1.0 / self.alphas_cumprod)
-		self.sqrt_recipm1_alphas_cumprod = torch.sqrt(1.0 / self.alphas_cumprod - 1)
-
-		self.posterior_variance = (
-			self.betas * (1.0 - self.alphas_cumprod_prev) / (1.0 - self.alphas_cumprod)
-		)
-		self.posterior_log_variance_clipped = torch.log(torch.cat([self.posterior_variance[1].unsqueeze(0), self.posterior_variance[1:]]))
-		self.posterior_mean_coef1 = (self.betas * torch.sqrt(self.alphas_cumprod_prev) / (1.0 - self.alphas_cumprod))
-		self.posterior_mean_coef2 = ((1.0 - self.alphas_cumprod_prev) * torch.sqrt(alphas) / (1.0 - self.alphas_cumprod))
-
-	def p_sample(self, model, x_start, steps, sampling_noise=False):
-		if steps == 0:
-			x_t = x_start
-		else:
-			t = torch.tensor([steps-1] * x_start.shape[0]).cuda()
-			#print("p_sample t:", t, "t.shape:", t.shape)
-			x_t = self.q_sample(x_start, t)
-		
-		indices = list(range(self.steps))[::-1]
-
-		for i in indices:
-			t = torch.tensor([i] * x_t.shape[0]).cuda()
-			#print("-----p_sample t:", t, "t.shape:", t.shape) #  t: tensor([4, 4, 4,  ..., 4, 4, 4], device='cuda:0') t.shape: torch.Size([1024])
-			model_mean, model_log_variance = self.p_mean_variance(model, x_t, t)
-			if sampling_noise:
-				noise = torch.randn_like(x_t)
-				nonzero_mask = ((t!=0).float().view(-1, *([1]*(len(x_t.shape)-1))))
-				x_t = model_mean + nonzero_mask * torch.exp(0.5 * model_log_variance) * noise
-			else:
-				x_t = model_mean
-		return x_t
-
-	def q_sample(self, x_start, t, noise=None):
-		#print("q_sample t.shape:", t.shape) # q_sample t: tensor([1, 3, 1,  ..., 2, 1, 2], device='cuda:0') t.shape: torch.Size([1024])
-		if noise is None:
-			noise = torch.randn_like(x_start)
-		# print("self.sqrt_alphas_cumprod:", self.sqrt_alphas_cumprod, "self.sqrt_alphas_cumprod.shape:", self.sqrt_alphas_cumprod.shape)
-		# self.sqrt_alphas_cumprod: tensor([0.9999, 0.9997, 0.9995, 0.9992, 0.9990], device='cuda:0', dtype=torch.float64) self.sqrt_alphas_cumprod.shape: torch.Size([5])
-		#print("q_sample.t.shape:", t.shape) #  q_sample.t.shape: torch.Size([1024])
-		#print("x_start.shape:", x_start.shape) # x_start.shape: torch.Size([1024, 6710])
-		#print("self._extract_into_tensor(self.sqrt_alphas_cumprod, t, x_start.shape) :", self._extract_into_tensor(self.sqrt_alphas_cumprod, t, x_start.shape) )
-		#print("self._extract_into_tensor(self.sqrt_alphas_cumprod, t, x_start.shape).shape:", self._extract_into_tensor(self.sqrt_alphas_cumprod, t, x_start.shape).shape)
-		
-		'''
-		self._extract_into_tensor(self.sqrt_alphas_cumprod, t, x_start.shape) : tensor([[0.9997, 0.9997, 0.9997,  ..., 0.9997, 0.9997, 0.9997],
-		[0.9992, 0.9992, 0.9992,  ..., 0.9992, 0.9992, 0.9992],
-		[0.9997, 0.9997, 0.9997,  ..., 0.9997, 0.9997, 0.9997],
-		...,
-		[0.9995, 0.9995, 0.9995,  ..., 0.9995, 0.9995, 0.9995],
-		[0.9997, 0.9997, 0.9997,  ..., 0.9997, 0.9997, 0.9997],
-		[0.9995, 0.9995, 0.9995,  ..., 0.9995, 0.9995, 0.9995]],
-	   device='cuda:0')
-		self._extract_into_tensor(self.sqrt_alphas_cumprod, t, x_start.shape).shape: torch.Size([1024, 6710])
-		
-		'''
-		return self._extract_into_tensor(self.sqrt_alphas_cumprod, t, x_start.shape) * x_start + self._extract_into_tensor(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape) * noise
-
-	def _extract_into_tensor(self, arr, timesteps, broadcast_shape):
-		arr = arr.cuda()
-		res = arr[timesteps].float()
-		while len(res.shape) < len(broadcast_shape):
-			res = res[..., None]
-		return res.expand(broadcast_shape)
-
-	def p_mean_variance(self, model, x, t):
-		model_output = model(x, t, False)
-		#print("model_output.shape:", model_output.shape) # model_output.shape: torch.Size([1024, 6710]
-
-		model_variance = self.posterior_variance
-		model_log_variance = self.posterior_log_variance_clipped
-
-		model_variance = self._extract_into_tensor(model_variance, t, x.shape)
-		model_log_variance = self._extract_into_tensor(model_log_variance, t, x.shape)
-
-		model_mean = (self._extract_into_tensor(self.posterior_mean_coef1, t, x.shape) * model_output + self._extract_into_tensor(self.posterior_mean_coef2, t, x.shape) * x)
-		
-		return model_mean, model_log_variance
-
-	def training_losses(self, model, x_start, itmEmbeds, batch_index, model_feats):
-		batch_size = x_start.size(0)
-
-		ts = torch.randint(0, self.steps, (batch_size,)).long().cuda()
-		noise = torch.randn_like(x_start)
-		if self.noise_scale != 0:
-			x_t = self.q_sample(x_start, ts, noise)
-		else:
-			x_t = x_start
-
-		model_output = model(x_t, ts)
-
-		mse = self.mean_flat((x_start - model_output) ** 2)
-
-		weight = self.SNR(ts - 1) - self.SNR(ts)
-		weight = torch.where((ts == 0), 1.0, weight)
-
-		diff_loss = weight * mse
-
-		usr_model_embeds = torch.mm(model_output, model_feats)
-		usr_id_embeds = torch.mm(x_start, itmEmbeds)
-
-		gc_loss = self.mean_flat((usr_model_embeds - usr_id_embeds) ** 2)
-
-		return diff_loss, gc_loss
-		
-	def mean_flat(self, tensor):
-		return tensor.mean(dim=list(range(1, len(tensor.shape))))
-	
-	def SNR(self, t):
-		self.alphas_cumprod = self.alphas_cumprod.cuda()
-		return self.alphas_cumprod[t] / (1 - self.alphas_cumprod[t])
 	
 
-class StableInterestDiffusion(nn.Module):
+class FlipInterestDiffusion(nn.Module):
 	'''
 		实现稳定的兴趣扩散过程
 		Args:
@@ -994,16 +615,14 @@ class StableInterestDiffusion(nn.Module):
 			-p_sample():反向扩散过程
 			-training_losses():损失函数
 	'''
-	def __init__(self, gamma_start, gamma_end, epsilon_start=0.01, epsilon_end=0.001, steps=5):
+	def __init__(self, steps=5, base_temp=1.0):
 		# 建议添加稳定性参数
-		super(StableInterestDiffusion, self).__init__()  
+		super(FlipInterestDiffusion, self).__init__()  
 		self.eps = 1e-8  # 缺失的稳定性参数
-		self.gamma_start = gamma_start
-		self.gamma_end = gamma_end 
-		self.epsilon_start = epsilon_start
-		self.epsilon_end = epsilon_end
 		self.steps = steps
-		self.alpha_bar0, self.alpha_bar1 = self.get_cum() # self.alpha_bar0：0->1累积转移概率，self.alpha_bar1 1->0累积转移概率
+		self.base_temp = base_temp  # 基础温度参数
+		
+		#self.alpha_bar0, self.alpha_bar1 = self.get_cum() # self.alpha_bar0：0->1累积转移概率，self.alpha_bar1 1->0累积转移概率
 		'''
 		self.alpha_bar0: tensor([0.0001, 0.0004, 0.0010, 0.0017, 0.0027])
 		self.alpha_bar1: tensor([0.0010, 0.0018, 0.0023, 0.0026, 0.0027])
@@ -1013,40 +632,59 @@ class StableInterestDiffusion(nn.Module):
 		self.alpha_bar0: tensor([1.0000e-04, 2.5750e-07, 1.3004e-09, 9.7853e-12, 9.7853e-14])
 		self.alpha_bar1: tensor([1.0000e-02, 7.5250e-05, 3.8001e-07, 9.7853e-10, 9.7853e-14])
 		'''
-		print("self.alpha_bar0:", self.alpha_bar0)
-		print("self.alpha_bar1:", self.alpha_bar1)
-	def get_cum(self):
-		'''
-			TODO : 这里有一个调度策略
-				Linear Scheduling
-				Cosine Scheduling
-		'''
-		# 0->1概率线性增长，1->0概率保持极低
-		gamma = torch.linspace(self.gamma_start, self.gamma_end, self.steps) 
-		print("gamma:", gamma)
-		# epsilon = torch.full((self.steps, ), 0.001)  # 固定为0.1%
-		epsilon = torch.linspace(self.epsilon_start, self.epsilon_end, self.steps)
-		print('epsilon:', epsilon)
+		# print("self.alpha_bar0:", self.alpha_bar0)
+		# print("self.alpha_bar1:", self.alpha_bar1)
+		
+	def _compute_sparsity(self, x):
+		"""计算批次数据的稀疏性（0的比例）"""
+		return (x == 0).float().mean()
+
+	def _auto_schedule_params(self, x_start):
+		"""根据输入数据自动调度 gamma 和 epsilon 参数"""
+		sparsity = self._compute_sparsity(x_start)
+		# Gamma (0->1 转移概率参数)
+		# 稀疏性越高 -> gamma_start 越大（鼓励早期更多探索）
+		gamma_start = 0.1 * (1 - sparsity) + 0.001  # 范围 [0.001, 0.1]
+		gamma_end = gamma_start * 0.1  # 随 step 递减
+		# Epsilon (1->0 转移概率参数)
+		# 稀疏性越高 -> epsilon 越小（保护已有 1 的交互）
+		epsilon_start = 0.005 * sparsity + 0.0001  # 范围 [0.0001, 0.005]
+		epsilon_end = epsilon_start * 0.1
+
+		return gamma_start, gamma_end, epsilon_start, epsilon_end
+
+
+	def get_cum(self, x_start):
+		"""动态生成基于数据的累积转移概率"""
+		gamma_start, gamma_end, epsilon_start, epsilon_end = self._auto_schedule_params(x_start)
+		# Gamma 调度（0->1 概率随时间递减）
+		gamma = torch.linspace(gamma_start, gamma_end, self.steps)
+		# Epsilon 调度（1->0 概率保持极低）
+		epsilon = torch.linspace(epsilon_start, epsilon_end, self.steps)
+		epsilon = torch.clamp(epsilon, max=0.01)  # 强制上限
 		# 计算累积转移概率
-		gamma_cum = 1- torch.cumprod(1 - gamma, dim=0)
-		epsilon_cum = 1- torch.cumprod(1 - epsilon, dim=0)
-		return gamma_cum, epsilon_cum
+		gamma_cum = 1 - torch.cumprod(1 - gamma, dim=0)
+		epsilon_cum = 1 - torch.cumprod(1 - epsilon, dim=0)
+		
+		return gamma_cum.to(x_start.device), epsilon_cum.to(x_start.device)
 	
 	@staticmethod
-	def generate_custom_noise(x_start):
-		# 计算均值和方差
-		mean = x_start.float().mean()
-		var = x_start.float().var(unbiased=True)
-		std = torch.sqrt(var)
-		
-		# 生成符合 N(mean, var) 的噪声
-		noise = torch.randn_like(x_start.float())  # 标准正态分布
-		noise = noise * std + mean                 # 调整均值和方差
-		return noise
+	def generate_custom_noise(x, temp_scale=1.0, mode='randn'):
+		"""带温度控制的自适应噪声生成"""
+		if mode == 'randn':
+
+			mean = x.float().mean()
+			var = x.float().var(unbiased=True)
+			std = torch.sqrt(var + 1e-8) * temp_scale  # 温度缩放标准差
+			noise = torch.randn_like(x.float())
+			return noise * std + mean
+		if  mode == 'rand':
+			noise = torch.rand_like(x.float())
+			return noise
+
 	
-	def q_sample(self, x_start, t, noise=None):
-		'''
-			前向扩散过程
+	def q_sample(self, x_start, t, temp_scale=1.0):
+		"""前向扩散过程
 			x_start:
 			 		[tensor([[0., 0., 0.,  ..., 0., 0., 0.],
 					[0., 0., 0.,  ..., 0., 0., 0.],
@@ -1070,56 +708,30 @@ class StableInterestDiffusion(nn.Module):
 			[0.9995, 0.9995, 0.9995,  ..., 0.9995, 0.9995, 0.9995]],
 			device='cuda:0')
 			self._extract_into_tensor(self.sqrt_alphas_cumprod, t, x_start.shape).shape: torch.Size([1024, 6710])
-
-		'''
-		# 获取当前时间步的累积转移概率
-		alpha_bar0_t = self._extract_into_tensor(self.alpha_bar0, t, x_start.shape)
-		alpha_bar1_t = self._extract_into_tensor(self.alpha_bar1, t, x_start.shape)
-		# 生成随机掩码
-		if noise is None:
-			# noise = torch.randn_like(x_start.float()).clamp(0, 1) 
-			# noise = torch.randn_like(x_start.float())
-			noise = StableInterestDiffusion.generate_custom_noise(x_start)
-			# noise = torch.randn_like(x_start.float())
-			# print("noise:", noise, "alpha_bar0_t:", alpha_bar0_t, "alpha_bar1_t:", alpha_bar1_t)
-		'''
-			noise: tensor([[-2.2789,  0.5532,  1.4290,  ..., -0.2999,  1.7982,  0.0647],
-				[ 1.5147, -1.1092, -0.5543,  ..., -0.2727,  1.2984, -0.2930],
-				[-1.7666, -2.1301,  3.0584,  ..., -0.2789, -1.1266,  0.3861],
-				...,
-				[ 1.0666, -0.0127,  1.7956,  ...,  1.8305, -0.0170, -0.2468],
-				[-1.9341,  2.3860, -1.0050,  ...,  1.2380, -0.7340,  0.4161],
-				[-1.0859,  1.8263,  0.5923,  ...,  0.3986,  0.1690,  0.4631]],
-			device='cuda:0') 
-		alpha_bar0_t: tensor([[0.0001, 0.0001, 0.0001,  ..., 0.0001, 0.0001, 0.0001],
-			[0.0250, 0.0250, 0.0250,  ..., 0.0250, 0.0250, 0.0250],
-			[0.0152, 0.0152, 0.0152,  ..., 0.0152, 0.0152, 0.0152],
-			...,
-			[0.0001, 0.0001, 0.0001,  ..., 0.0001, 0.0001, 0.0001],
-			[0.0001, 0.0001, 0.0001,  ..., 0.0001, 0.0001, 0.0001],
-			[0.0001, 0.0001, 0.0001,  ..., 0.0001, 0.0001, 0.0001]],
-		device='cuda:0')
-		  alpha_bar1_t: tensor([[0.0100, 0.0100, 0.0100,  ..., 0.0100, 0.0100, 0.0100],
-			[0.0250, 0.0250, 0.0250,  ..., 0.0250, 0.0250, 0.0250],
-			[0.0249, 0.0249, 0.0249,  ..., 0.0249, 0.0249, 0.0249],
-			...,
-			[0.0100, 0.0100, 0.0100,  ..., 0.0100, 0.0100, 0.0100],
-			[0.0100, 0.0100, 0.0100,  ..., 0.0100, 0.0100, 0.0100],
-			[0.0100, 0.0100, 0.0100,  ..., 0.0100, 0.0100, 0.0100]],
-		device='cuda:0')
-		'''
-		# print("noise:", noise) 
-		# print("alpha_bar0_t:", alpha_bar0_t)
-		# print("alpha_bar1_t:", alpha_bar1_t)
-		# 计算状态翻转
-		flip_mask = torch.where(
-			x_start == 0, 
-			noise < alpha_bar0_t,  # 0->1条件
-			noise < alpha_bar1_t # 1->0条件
+		"""
+		# 动态计算当前批次的参数
+		gamma_cum, epsilon_cum = self.get_cum(x_start)
+		
+		# 提取当前时间步的累积概率
+		self.alpha_bar0_t = self._extract_into_tensor(gamma_cum, t, x_start.shape)
+		self.alpha_bar1_t = self._extract_into_tensor(epsilon_cum, t, x_start.shape)
+		
+		# 生成自适应噪声（带温度控制）
+		noise = self.generate_custom_noise(x_start, temp_scale, mode = 'rand')
+		# print("torch.sigmoid((self.alpha_bar0_t - noise) * self.base_temp):", torch.sigmoid((self.alpha_bar0_t - noise) * self.base_temp))
+		# print("torch.sigmoid((self.alpha_bar1_t - noise) * self.base_temp) :", torch.sigmoid((self.alpha_bar1_t - noise) * self.base_temp) )
+		# 计算软翻转概率
+		flip_prob = torch.where(
+			x_start == 0,
+			torch.sigmoid((self.alpha_bar0_t - noise) * self.base_temp),  # 0->1
+			torch.sigmoid((self.alpha_bar1_t - noise) * self.base_temp)   # 1->0
 		)
-		# 应用翻转
+		
+		# 采样翻转
+		flip_mask = torch.bernoulli(flip_prob)
+		# print("flip_mask:", flip_mask)
 		x_t = x_start.clone()
-		x_t[flip_mask] = 1 - x_t[flip_mask]
+		x_t[flip_mask.bool()] = 1 - x_t[flip_mask.bool()]
 		
 		return x_t
 
@@ -1142,13 +754,29 @@ class StableInterestDiffusion(nn.Module):
 				动态平衡探索与利用，保留可靠交互的同时探索潜在兴趣
 				引入pos_weight缓解交互矩阵稀疏性问题
 
-			x_t: tensor([[1., 1., 0.,  ..., 1., 1., 1.],
-				[0., 0., 0.,  ..., 1., 1., 1.],
-				[0., 1., 0.,  ..., 1., 1., 1.],
-				...,
-				[0., 1., 1.,  ..., 1., 1., 1.],
-				[0., 1., 1.,  ..., 1., 1., 1.],
-				[0., 0., 1.,  ..., 1., 1., 1.]], device='cuda:0')
+
+			x_start: tensor([[0., 0., 0.,  ..., 0., 0., 0.],
+			[0., 0., 1.,  ..., 0., 0., 0.],
+			[0., 0., 0.,  ..., 0., 0., 0.],
+			...,
+			[0., 0., 0.,  ..., 0., 0., 0.],
+			[0., 0., 0.,  ..., 0., 0., 0.],
+			[0., 0., 0.,  ..., 0., 0., 0.]], device='cuda:0')
+			x_t: tensor([[1., 0., 1.,  ..., 1., 0., 0.],
+					[1., 0., 1.,  ..., 1., 1., 1.],
+					[1., 1., 1.,  ..., 1., 1., 1.],
+					...,
+					[1., 0., 1.,  ..., 0., 1., 0.],
+					[1., 1., 1.,  ..., 0., 1., 1.],
+					[0., 1., 1.,  ..., 1., 1., 1.]], device='cuda:0')
+			prob: tensor([[0.7361, 0.6958, 0.7837,  ..., 0.7379, 0.7428, 0.7408],
+					[0.7265, 0.7070, 0.7732,  ..., 0.7319, 0.7386, 0.7387],
+					[0.7338, 0.7073, 0.7838,  ..., 0.7224, 0.7406, 0.7410],
+					...,
+					[0.7347, 0.7052, 0.7831,  ..., 0.7279, 0.7461, 0.7481],
+					[0.7346, 0.6942, 0.7780,  ..., 0.7297, 0.7357, 0.7409],
+					[0.7331, 0.6891, 0.7786,  ..., 0.7287, 0.7383, 0.7492]],
+				device='cuda:0')
 		'''
 		batch_size = x_start.shape[0]
 		if steps == 0:
@@ -1157,29 +785,34 @@ class StableInterestDiffusion(nn.Module):
 			t = torch.tensor([steps - 1] * batch_size).cuda() # t时间矩阵
 			x_t = self.q_sample(x_start, t) # 每个batch内的张量都进行前向扩散
 		# 反向过程迭代
-		#print("self.steps:", self.steps)
-		for i in list(range(self.steps))[::-1]:
-			# print("i:", i)
-			t = torch.tensor([i] * batch_size).cuda() # t时间矩阵 t: tensor([4, 4, 4,  ..., 4, 4, 4], device='cuda:0') t.shape: torch.Size([1024])
+		# print("self.steps:", self.steps)
+		# [4, 3, 2, 1, 0]
+		indices = list(range(self.steps))[::-1]
+
+		for i in indices:
+			#t = torch.tensor([i] * batch_size).cuda() # t时间矩阵 t: tensor([4, 4, 4,  ..., 4, 4, 4], device='cuda:0') t.shape: torch.Size([1024])
+			# print("t:", t)
+			# assert 0 <= i < self.steps, f'Invalid step index i={i} with total steps={self.steps}'
+			t = torch.tensor([i] * x_t.shape[0]).cuda()
+			#assert t.max().item() < self.steps, f'Invalid t value {t.max().item()} at step {i}' # t时间矩阵 t: tensor([4, 4, 4,  ..., 4, 4, 4], device='cuda:0') t.shape: torch.Size([1024])
 			logits, probs = self.p_interest_shift_probs(model, x_t, t) # torch.Size([1024, 6710])
 			if bayesian_samplinge_schedule == True and i > 0:
 				# 获取前向转移概率
-				prev_alpha_bar0 = self._extract_into_tensor(self.alpha_bar0, t-1, x_start.shape) # self.alpha_bar0[t-1]  torch.Size([1024, 6710])
-				prev_alpha_bar1 = self._extract_into_tensor(self.alpha_bar1, t-1, x_start.shape) # self.alpha_bar1[t-1]  torch.Size([1024, 6710])
+				prev_alpha_bar0_t = self._extract_into_tensor(self.alpha_bar0_t, t-1, x_start.shape) # self.alpha_bar0[t-1]  torch.Size([1024, 6710])
+				prev_alpha_bar1_t = self._extract_into_tensor(self.alpha_bar1_t, t-1, x_start.shape) # self.alpha_bar1[t-1]  torch.Size([1024, 6710])
 				# 计算后验分布
-				p0 = probs * (1 - prev_alpha_bar0) + (1 - probs) * prev_alpha_bar1
-				p1 = probs * prev_alpha_bar0 + (1 - probs) * (1 - prev_alpha_bar1)
+				p0 = probs * (1 - prev_alpha_bar0_t) + (1 - probs) * prev_alpha_bar1_t
+				p1 = probs * prev_alpha_bar0_t + (1 - probs) * (1 - prev_alpha_bar1_t)
 				# 根据后验分布采样
 				x_t = torch.bernoulli(p1 /(p0 + p1))
 				#print("x_t:", x_t)
 
 			else:
 				x_t =  torch.bernoulli(probs)
+	
+		return x_t, probs
 
-		return x_t
-
-
-	def training_losses(self, model, x_start, itmEmbeds, batch_index, model_feats):
+	def training_losses(self, model, x_start, itmEmbeds, batch_index, model_feats, text_feats, audio_feats):
 		'''
 			在扩散模型的损失函数设计中，需要考虑下面的问题:
 			1. 传统的MSE损失要改为二元交叉熵损失
@@ -1189,6 +822,7 @@ class StableInterestDiffusion(nn.Module):
 		'''
 		# 动态类别权重计算
 		pos_weight = torch.sum(1 - x_start) / (torch.sum(x_start) + 1e-8)
+		# pos_weight =  (torch.sum(x_start) + 1e-8) / torch.sum(1 - x_start)
 		batch_size = x_start.size(0)
 		# 随机采样时间步
 		t = torch.randint(0, self.steps, (batch_size,)).long().cuda() # t: tensor([1, 3, 1,  ..., 2, 1, 2], device='cuda:0') t.shape: torch.Size([1024]) 
@@ -1197,13 +831,14 @@ class StableInterestDiffusion(nn.Module):
 		# 模型预测
 		logits, probs = self.p_interest_shift_probs(model, x_t, t)
 		###########################Focal Loss###########################
-		gamma = 2.0  # 聚焦参数，越大对难样本关注越高
-		alpha = 0.25  # 类别平衡基础系数
+		gamma = 2.0  # 聚焦参数，越大对难样本关注越高2.0 
+		alpha = 0.25 # 类别平衡基础系数0.25 
 		# 计算概率并确保数值稳定
 		p = torch.sigmoid(logits)
 		p = torch.clamp(p, min=1e-7, max=1-1e-7)  # 防止log(0)
 		# 动态调整alpha（结合原有pos_weight）
-		adaptive_alpha = alpha * pos_weight.detach()  # 解耦梯度计算
+		adaptive_alpha = alpha * pos_weight.detach()  # 解耦梯度计算 0.0002
+		# print("adaptive_alpha:", adaptive_alpha)
 		# 计算正负样本mask
 		pos_mask = x_start.float()
 		neg_mask = 1 - pos_mask
@@ -1212,8 +847,8 @@ class StableInterestDiffusion(nn.Module):
 		neg_loss = -(1 - adaptive_alpha) * p.pow(gamma) * neg_mask * torch.log(1 - p)
 		
 		# 合并损失并求均值
-		focal_loss = (pos_loss + neg_loss).mean()
-
+		#focal_loss = (pos_loss + neg_loss).mean()
+		focal_loss = (pos_loss + neg_loss).sum() / (pos_mask.sum() + neg_mask.sum() + 1e-8)
 		# 二元交叉熵损失
 		bce_loss = F.binary_cross_entropy_with_logits(
 			logits, x_start.float(), 
@@ -1221,7 +856,7 @@ class StableInterestDiffusion(nn.Module):
 		)
 		# 计算对比损失
 		# 原始图卷积的模态向量与生成的模态向量之间的对比损失，使得生成的模态正样本靠近原始
-		gen_output = self.p_sample(
+		gen_output, _ = self.p_sample(
 			model=model,
 			x_start=x_start,
 			steps=self.steps,
@@ -1231,16 +866,31 @@ class StableInterestDiffusion(nn.Module):
 		model_feat_embedding =  torch.multiply(itmEmbeds, model_feats)
 		model_feat_embedding_origin = torch.mm(x_start, model_feat_embedding)
 		model_feat_embedding_diffusion = torch.mm(gen_output, model_feat_embedding)
+		cl_loss = self.infoNCE_loss(model_feat_embedding_origin, model_feat_embedding_diffusion, args.sparse_temp)
+
+		text_model_feat_embedding =  torch.multiply(itmEmbeds, text_feats)
+		text_model_feat_embedding_origin = torch.mm(x_start, text_model_feat_embedding)
+		text_model_feat_embedding_diffusion = torch.mm(gen_output, text_model_feat_embedding)
+		cl_loss_text = self.infoNCE_loss(text_model_feat_embedding_origin, text_model_feat_embedding_diffusion, args.sparse_temp)
+
+		if args.data == 'tiktok':
+			audio_model_feat_embedding =  torch.multiply(itmEmbeds, audio_feats)
+			audio_model_feat_embedding_origin = torch.mm(x_start, audio_model_feat_embedding)
+			audio_model_feat_embedding_diffusion = torch.mm(gen_output, audio_model_feat_embedding)
+			cl_loss_audio = self.infoNCE_loss(audio_model_feat_embedding_origin, audio_model_feat_embedding_diffusion, args.sparse_temp)
+			
 		# KL散度项
 		kl_loss = self._calc_kl_divergence(x_start, x_t, t, probs)
 		# 课程学习权重
 		curriculum_weight = torch.clamp(t.float() / self.steps, 0, 0.5) 
 		kl_loss = (curriculum_weight * kl_loss).mean()
-		cl_loss = self.infoNCE_loss(model_feat_embedding_origin, model_feat_embedding_diffusion, args.sparse_temp)
-		total_loss = focal_loss +  kl_loss + 0.01 * cl_loss
-		#print("bce_loss:", bce_loss, "kl_loss:", kl_loss, "cl_loss:", cl_loss)
+		if args.data == 'tiktok':
+			total_loss = focal_loss +  kl_loss + args.ssl_gen1 * cl_loss   + args.ssl_gen2 * cl_loss_text + args.ssl_gen3 * cl_loss_audio 
+		else:
+			total_loss = focal_loss +  kl_loss + args.ssl_gen1 * cl_loss  + args.ssl_gen2 * cl_loss_text 
+		#total_loss = bce_loss +  kl_loss + 0.01 * cl_loss
+		#print("focal_loss:", total_loss, "bce_loss:", bce_loss, "kl_loss:", kl_loss, "cl_loss:", cl_loss)
 		return total_loss
-
 
 	def mean_flat(self, tensor):
 		return tensor.mean(dim=list(range(1, len(tensor.shape))))
@@ -1267,8 +917,8 @@ class StableInterestDiffusion(nn.Module):
 		# alpha0 = self.alpha_bar0[t].view(-1,1)
 		# alpha1 = self.alpha_bar1[t].view(-1,1)
 		
-		alpha0 = self._extract_into_tensor(self.alpha_bar0, t, x0.shape)
-		alpha1 = self._extract_into_tensor(self.alpha_bar1, t, x0.shape)
+		alpha0 = self._extract_into_tensor(self.alpha_bar0_t, t, x0.shape)
+		alpha1 = self._extract_into_tensor(self.alpha_bar1_t, t, x0.shape)
 		# 分子项
 		case0 = (x0 == 0).float() * (1 - alpha0)
 		case1 = (x0 == 1).float() * alpha1
@@ -1308,7 +958,6 @@ class StableInterestDiffusion(nn.Module):
 
 		return contrast_loss 
 	
-
 
 
 # Multi-Modal Fusion
@@ -1382,103 +1031,6 @@ class MultimodalFeatureFusion(nn.Module):
 
 		return multimodal_fusion
 	
-
-
-class ModalDenoise(nn.Module):
-	def __init__(self, in_dims, out_dims, emb_size, norm=False, dropout=0.2):
-		'''
-			生成epsilon
-			没有Embedding ?
-		'''
-		super(ModalDenoise, self).__init__()
-		self.in_dims = in_dims # 128
-		self.out_dims = out_dims # 128
-		self.time_emb_dim = emb_size # 10
-		# print("self.in_dims:", self.in_dims)
-		# print("self.out_dims", self.out_dims)
-		# print("self.time_emb_dim:", self.time_emb_dim)
-		self.norm = norm
-		self.emb_layer = nn.Linear(self.time_emb_dim, self.time_emb_dim)
-
-		#print("self.in_dims + self.time_emb_dim:", in_dims + self.time_emb_dim) # 4106
-		# print("self.in_dims//2:", self.in_dims//2)  # (1024x1034 and 4116x2053) # 2048
-
-		in_features = (in_dims + self.time_emb_dim) 
-
-		self.down_sampling = nn.Sequential(
-			nn.Linear(in_features=in_features, out_features=self.in_dims // 2),
-			nn.BatchNorm1d(self.in_dims // 2),
-			nn.LeakyReLU(negative_slope=0.2),
-			nn.Dropout(0.1),
-			nn.Linear(in_features=self.in_dims // 2, out_features=self.in_dims//4),
-			nn.BatchNorm1d(self.in_dims//4),
-			nn.LeakyReLU(negative_slope=0.2),
-			nn.Dropout(0.1),
-			nn.Linear(in_features=self.in_dims // 4, out_features=self.in_dims//8),
-			nn.BatchNorm1d(self.in_dims//8),
-			nn.LeakyReLU(negative_slope=0.2),
-			nn.Dropout(0.1)
-		)
-		self.up_sampling = nn.Sequential(
-			nn.Linear(in_features=self.in_dims//8, out_features=self.in_dims//4),
-			nn.BatchNorm1d(self.in_dims//4),
-			nn.LeakyReLU(negative_slope=0.2),
-			nn.Dropout(0.1),
-			nn.Linear(in_features=self.in_dims//4, out_features=self.in_dims//2),
-			nn.BatchNorm1d(self.in_dims // 2),
-			nn.LeakyReLU(negative_slope=0.2),
-			nn.Dropout(0.1),
-			nn.Linear(in_features=self.in_dims//2, out_features=self.in_dims),
-			nn.BatchNorm1d(self.in_dims),
-			nn.LeakyReLU(negative_slope=0.2),
-			nn.Dropout(0.1)
-		)
-
-		self.drop = nn.Dropout(dropout)
-		self.initialize_weights()
-
-	def initialize_weights(self):
-			"""
-			对down_sampling和up_sampling中的线性层权重和偏差进行初始化
-			"""
-			for module_seq in [self.down_sampling, self.up_sampling]:
-				for layer in module_seq:
-					if isinstance(layer, nn.Linear):
-						size = layer.weight.size()
-						std = np.sqrt(2.0 / (size[0] + size[1]))
-						layer.weight.data.normal_(0.0, std)
-						layer.bias.data.normal_(0.0, 0.001)
-
-	def forward(self, x, timesteps, mess_dropout=True):
-		# print("x.shape:", x.shape) # x.shape: torch.Size([1024, 128])
-		freqs = torch.exp(-math.log(10000) * torch.arange(start=0, end=self.time_emb_dim//2, dtype=torch.float32) / (self.time_emb_dim//2))
-		temp = timesteps[:, None].float() * freqs[None]
-		time_emb = torch.cat([torch.cos(temp), torch.sin(temp)], dim=-1)
-		if self.time_emb_dim % 2:
-			time_emb = torch.cat([time_emb, torch.zeros_like(time_emb[:, :1])], dim=-1)
-		#print("time_emb.shape:", time_emb.shape)
-		emb = self.emb_layer(time_emb)
-		
-		if self.norm:
-			x = F.normalize(x)
-		if mess_dropout:
-			x = self.drop(x)
-		#print("x.shape:", x.shape) # tiktok x.shape: torch.Size([1024, 128])   baby: x.shape: torch.Size([1024, 4096])
-		# print("emb.shape:", emb.shape)
-		h = torch.cat([x, emb], dim=-1)
-		#print("h0.shape:", h.shape) # h1.shape: torch.Size([1024, 138])  h0.shape: torch.Size([1024, 4106]
-		# dowm sapmling
-		h = self.down_sampling(h)
-		#print("h2.shape:", h.shape) # h2.shape: torch.Size([1024, 32])
-		# up sampling
-		h = self.up_sampling(h)
-
-		# x += h 
-		# h = torch.cat([x, emb], dim=-1)
-		# h = self.down_sampling(h)
-		# h = self.up_sampling(h)
-		#print("h3.shape:", h.shape) # h3.shape: torch.Size([1024, 128])
-		return h
 	
 import torch
 import torch.nn as nn
@@ -1535,8 +1087,27 @@ class ModalDenoiseTransformer(nn.Module):
 		Args:
 			x: [batch_size, in_dims]
 			timesteps: [batch_size]
+			x: 
+			tensor([[1., 0., 0.,  ..., 1., 0., 0.],
+			[0., 0., 0.,  ..., 1., 0., 1.],
+			[1., 1., 1.,  ..., 1., 1., 1.],
+			...,
+			[0., 1., 1.,  ..., 0., 0., 0.],
+			[0., 0., 1.,  ..., 1., 0., 0.],
+			[0., 1., 0.,  ..., 1., 0., 0.]], device='cuda:0')
+			time_emb: 
+			tensor([[-0.9900,  0.8891,  0.9972,  ...,  0.0753,  0.0119,  0.0019],
+					[-0.9900,  0.8891,  0.9972,  ...,  0.0753,  0.0119,  0.0019],
+					[-0.9900,  0.8891,  0.9972,  ...,  0.0753,  0.0119,  0.0019],
+					...,
+					[-0.9900,  0.8891,  0.9972,  ...,  0.0753,  0.0119,  0.0019],
+					[-0.9900,  0.8891,  0.9972,  ...,  0.0753,  0.0119,  0.0019],
+					[-0.9900,  0.8891,  0.9972,  ...,  0.0753,  0.0119,  0.0019]],
+				device='cuda:0')
 		Returns:
 			out: [batch_size, out_dims]
+		time_emb.shape: torch.Size([1024, 10])
+		x.shape: torch.Size([1024, 6710])
 		"""
 		#print("timesteps:", timesteps) # tensor([3, 4, 3,  ..., 2, 0, 1], device='cuda:0')
 		# 生成时间嵌入
@@ -1551,9 +1122,12 @@ class ModalDenoiseTransformer(nn.Module):
 			time_emb = torch.cat([time_emb, torch.zeros_like(time_emb[:, :1])], dim=-1)
 		#print("time_emb.shape:", time_emb.shape)
 		# print("time_emb.device:", time_emb.device)
+		# print("time_emb:", time_emb)
 		time_emb = self.emb_layer(time_emb.cuda())
 		# print("x.shape:", x.shape)
 		# print("time_emb.shape:", time_emb.shape)
+		# print("x:", x)
+		# print("time_emb:", time_emb)
 		# 输入投影
 		h = torch.cat([x, time_emb], dim=-1)  # [B, in_dims+emb_size]
 		h = self.input_proj(h)  # [B, dim_feedforward]
@@ -1567,9 +1141,7 @@ class ModalDenoiseTransformer(nn.Module):
 		
 		# Transformer解码过程
 		memory = torch.zeros_like(h)  # 空memory（自回归模式）
-		out = self.transformer_decoder(
-			tgt=h, 
-			memory=memory)  # [B, 1, dim_feedforward]
+		out = self.transformer_decoder(tgt=h, memory=memory)  # [B, 1, dim_feedforward]
 		
 		# 输出投影
 		out = out.squeeze(1)  # [B, dim_feedforward]
