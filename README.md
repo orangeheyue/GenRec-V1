@@ -4,12 +4,12 @@
 <br />
 <div align="center">
   <a href="https://github.com/orangeheyue/GenRec-V1">
-    <img src="images/genrecv1-logo.png" alt="Logo" width="400" height="200">
+    <img src="images/haitang.png" alt="Logo" width="400" height="200">
   </a>
 </div>
 
-## Introduction
-This is the offical code for GenRec-V1:
+## News
+This is the offical code for GenRec-V1(海棠):
 
 >**[ACMMM 2025]** Flip is Better than Noise: Unbiased Interest Generation for Multimedia Recommendation
 <img src="images/genrec-v1.png" width="900px" height="250px"/>
