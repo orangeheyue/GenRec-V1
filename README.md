@@ -74,13 +74,15 @@ The data comprises text and image features extracted from Sentence-Transformers 
 
 
 ## Citation
-If you find GenRec-V1 useful in your research, please consider citing our [paper].
-@inproceedings{genrec2025,
-  title={Flip is Better than Noise: Unbiased Interest Generation for Multimedia Recommendation},
-  author={[Author Names]},
-  booktitle={Proceedings of the 33rd ACM International Conference on Multimedia (ACMMM)},
-  year={2025}
+If you find GenRec-V1 useful in your research, please consider citing our [GenRec-V1].
+```bibtex
+@inproceedings{genrec2025, 
+    title={Flip is Better than Noise: Unbiased Interest Generation for Multimedia Recommendation}, 
+    author={[Author Names]}, 
+    booktitle={Proceedings of the 33rd ACM International Conference on Multimedia (ACMMM)}, 
+    year={2025} 
 }
+```
 
 ## 📧 Contact​
-For questions or issues, please contact [orangeai-research@gmail.com]
+For questions or issues, please contact [orangeai-research@gmail.com, orangeheyue@gmail.com]
