@@ -4,7 +4,7 @@
 <br />
 <div align="center">
   <a href="https://github.com/orangeheyue/GenRec-V1">
-    <img src="images/haitang.png" alt="Logo" width="400" height="200">
+    <img src="images/haitanglogo.png" alt="Logo" width="400" height="200">
   </a>
 </div>
 
@@ -36,7 +36,7 @@ This is the offical code for GenRec-V1(海棠):
 - torch-geometric >= 2.3.0
 - scikit-learn >= 1.2.0
 - numpy >= 1.24.0
-- 
+  
 ## 📁 Code Structure
 ```plaintext
 ├── images/               # Project visualization assets and figures
