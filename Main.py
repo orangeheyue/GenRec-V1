@@ -1,3 +1,7 @@
+# Author: OrangeAI Research Team
+# Time: 2025-03-24
+# implement: GenRec-V1: Stable Interest Generation for Multi-Modal Recommendation  
+
 import torch
 from torch.utils.tensorboard import SummaryWriter
 import Utils.TimeLogger as logger
