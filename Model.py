@@ -1,6 +1,7 @@
 # Author: OrangeAI Research Team
 # Time: 2025-03-24
-# implement: GenRec-V1: Stable Interest Generation for Multi-Modal Recommendation  
+# implement: GenRec-V1 | Flip is Better than Noise: Unbiased Interest Generation for Multimedia Recommendation
+
 
 import torch
 from torch import nn
