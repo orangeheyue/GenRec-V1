@@ -16,6 +16,7 @@ import math
 import setproctitle
 from scipy.sparse import coo_matrix
 import json
+from debiased_rate import DebiasingMetrics
 
 class Coach:
 	def __init__(self, handler):
@@ -81,22 +82,12 @@ class Coach:
 		if args.data == 'tiktok':
 			self.image_embedding, self.text_embedding, self.audio_embedding = self.handler.image_feats.detach(), self.handler.text_feats.detach(), self.handler.audio_feats.detach()
 			self.model = GCNModel(self.handler.image_feats.detach(), self.handler.text_feats.detach(), self.handler.audio_feats.detach(), modal_fusion=self.modal_fusion).cuda()
-			#self.model = Model(self.handler.image_feats.detach(), self.handler.text_feats.detach(), self.handler.audio_feats.detach()).cuda()
 		else:
-			# self.model = Model(self.handler.image_feats.detach(), self.handler.text_feats.detach()).cuda()
 			self.image_embedding, self.text_embedding = self.handler.image_feats.detach(), self.handler.text_feats.detach()
 			self.model = GCNModel(self.handler.image_feats.detach(), self.handler.text_feats.detach(), modal_fusion=self.modal_fusion).cuda()
 		self.opt = torch.optim.Adam(self.model.parameters(), lr=args.lr, weight_decay=0)
-		# self.opt = torch.optim.Adam(self.model.parameters(), lr=args.lr, weight_decay=1e-5)
-		#self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.opt, T_max=args.epoch, eta_min=1e-3)
-
-		print("get user interest cluster space:------>")
-		###################################FIND The Cluster Range###################################
-		# Baby: interest_min: 3 interest_mean: 7 interest_max: 100
-		# TikTok: interest_min: 0 interest_mean: 7 interest_max: 603
-		# Sport: interest_min: 3 interest_mean: 7 interest_max: 237
-		###################################FIND The Cluster Range###################################
-		# 获取用户兴趣聚类空间
+		
+		# get user`s interest cluster space
 		debiased_denoised_batch = None 
 		image_modal_cluster = MultimodalCluster(
 			num_cluster_visual_modal=20,
@@ -123,11 +114,9 @@ class Coach:
 			image_modal_optimial_cluster_num = 6 #6
 			text_optimial_cluster_num = 11 # 11
 
-		
 		if args.use_auto_optimal_k == False and args.data == 'sports':
 			image_modal_optimial_cluster_num = 9
 			text_optimial_cluster_num = 12
-
 
 		image_modal_items_cluster_labels = image_modal_cluster.multimodal_specific_cluster(specific_modal_features=self.image_embedding, modality='image_modal', optimial_cluster_num=image_modal_optimial_cluster_num)
 		print("image_modal_items_cluster_labels:", image_modal_items_cluster_labels, "image_modal_items_cluster_labels:", len(image_modal_items_cluster_labels))
@@ -148,8 +137,6 @@ class Coach:
 			}
 		INTEREST_SPACE_SAVE_PATH = './multimodal_interest_space.json'
 
-		# print("multimodal interest space is save in this dict:", self.multimodal_interest_space)
-
 		# Item-Item matrix 
 		'''
 			self.image_II_matrix.shape: torch.Size([6710, 6710])
@@ -161,29 +148,11 @@ class Coach:
 		if args.data == 'tiktok':
 			self.audio_II_origin_matrix_dense, self.audio_II_matrix = self.buildItem2ItemMatrix(self.audio_embedding)	
 
-		#self.diffusion_model = GaussianDiffusion(args.noise_scale, args.noise_min, args.noise_max, args.steps).cuda()
-		# self.diffusion_model = StableInterestDiffusion(
-		# 	gamma_start=args.gamma_start,
-		# 	gamma_end=args.gamma_end,
-		# 	epsilon_start=args.epsilon_start,
-		# 	epsilon_end=args.epsilon_end,
-		# 	steps=args.steps
-		# ).cuda()
-		# self.diffusion_model = StableInterestDiffusion(
-		# 	gamma_start=args.gamma_start,
-		# 	gamma_end=args.gamma_end,
-		# 	epsilon_start=args.epsilon_start,
-		# 	epsilon_end=args.epsilon_end,
-		# 	steps=args.steps
-		# ).cuda()
 		self.diffusion_model = FlipInterestDiffusion(
 			steps=args.steps,
 			base_temp=args.flip_temp
 		)
 
-		# out_dims = eval(args.dims) + [args.item]
-		# in_dims = out_dims[::-1]
-		# self.denoise_model_image = Denoise(in_dims, out_dims, args.d_emb_size, norm=args.norm).cuda()
 		out_dims = self.image_embedding.shape[0]
 		in_dims = self.image_embedding.shape[0]
 		#self.denoise_model_image = ModalDenoise(in_dims, out_dims, args.d_emb_size, norm=args.norm).cuda()
@@ -195,35 +164,6 @@ class Coach:
 													 ,num_layers=args.num_layers
 													 ).cuda()
 		self.denoise_opt_image = torch.optim.Adam(self.denoise_model_image.parameters(), lr=args.lr, weight_decay=0)
-	
-		# out_dims = self.text_embedding.shape[0]
-		# in_dims = self.text_embedding.shape[0]
-		# self.denoise_model_text = ModalDenoiseTransformer(in_dims=in_dims
-		# 											 ,out_dims=out_dims
-		# 											 ,emb_size=args.d_emb_size
-		# 											 ,nhead=args.nhead 
-		# 											 ,num_layers=args.num_layers
-		# 											 ).cuda()
-		# self.denoise_opt_text = torch.optim.Adam(self.denoise_model_text.parameters(), lr=args.lr, weight_decay=0)
-	
-		# out_dims = eval(args.dims) + [args.item]
-		# # in_dims = out_dims[::-1]
-		# self.denoise_model_text = ModalDenoise(in_dims, out_dims, args.d_emb_size, norm=args.norm).cuda()
-		# self.denoise_opt_text = torch.optim.Adam(self.denoise_model_text.parameters(), lr=args.lr, weight_decay=0)
-		# out_dims = self.audio_embedding.shape[0]
-		# in_dims = self.audio_embedding.shape[0]
-		# if args.data == 'tiktok':
-		# 			self.denoise_model_audio = ModalDenoiseTransformer(in_dims=in_dims
-		# 											 ,out_dims=out_dims
-		# 											 ,emb_size=args.d_emb_size
-		# 											 ,nhead=args.nhead 
-		# 											 ,num_layers=args.num_layers
-		# 											 ).cuda()
-		# 			self.denoise_opt_audio = torch.optim.Adam(self.denoise_model_audio.parameters(), lr=args.lr, weight_decay=0)	
-		# 	# out_dims = eval(args.dims) + [args.item]
-		# 	# in_dims = out_dims[::-1]
-		# 	self.denoise_model_audio = ModalDenoise(in_dims, out_dims, args.d_emb_size, norm=args.norm).cuda()
-		# 	self.denoise_opt_audio = torch.optim.Adam(self.denoise_model_audio.parameters(), lr=args.lr, weight_decay=0)
 
 	def normalizeAdj(self, mat): 
 		degree = np.array(mat.sum(axis=-1))
@@ -250,7 +190,7 @@ class Coach:
 	
 	def buildItem2ItemMatrix(self, feature):
 		'''
-			根据模态的特征计算Item-Item矩阵
+			modality guided item-item similarity matrix
 		'''
 		feature_embedding = torch.nn.Embedding.from_pretrained(feature, freeze=False)
 		feature_embedding = feature_embedding.weight.detach()
@@ -260,7 +200,6 @@ class Coach:
 		
 		return sim_adj, sim_adj_sparse
 		
-
 	def infoNCE_loss(self, view1, view2,  temperature):
 		'''
 			InfoNCE loss
@@ -280,6 +219,9 @@ class Coach:
 		trnLoader = self.handler.trnLoader
 		trnLoader.dataset.negSampling()
 		epLoss, epRecLoss, epClLoss = 0, 0, 0
+		# add Bias_Rate, KL_Rate
+		bias_rate_without_mid, kl_rate_without_mid, bias_rate_with_mid, kl_rate_with_mid = 0, 0, 0, 0
+		
 		epDiLoss = 0
 		epDiLoss_image, epDiLoss_text = 0, 0
 		if args.data == 'tiktok':
@@ -349,30 +291,10 @@ class Coach:
 			# print("audio_feats:", image_feats)
 			# print("audio_feats.shape:", image_feats.shape)
 			loss_image = self.diffusion_model.training_losses(self.denoise_model_image, batch_item, iEmbeds, batch_index, image_feats, text_feats, audio_feats)
-			# loss_text  = self.diffusion_model.training_losses(self.denoise_model_text, batch_item, iEmbeds, batch_index, text_feats)
-			# # diff_loss_image, gc_loss_image = self.diffusion_model.training_losses(self.denoise_model_image, batch_item, iEmbeds, batch_index, image_feats)
-			# # diff_loss_text, gc_loss_text = self.diffusion_model.training_losses(self.denoise_model_text, batch_item, iEmbeds, batch_index, text_feats)
-			# if args.data == 'tiktok':
-			# 	loss_audio = self.diffusion_model.training_losses(self.denoise_model_audio, batch_item, iEmbeds, batch_index, audio_feats)
-				# diff_loss_audio, gc_loss_audio = self.diffusion_model.training_losses(self.denoise_model_audio, batch_item, iEmbeds, batch_index, audio_feats)
-			# loss_image = diff_loss_image.mean() + gc_loss_image.mean() * args.e_loss
-			# loss_text = diff_loss_text.mean() + gc_loss_text.mean() * args.e_loss
-			# if args.data == 'tiktok':
-			# 	loss_audio = diff_loss_audio.mean() + gc_loss_audio.mean() * args.e_loss
 			epDiLoss_image += loss_image.item()
-			# epDiLoss_text += loss_text.item()
-			# if args.data == 'tiktok':
-			# 	epDiLoss_audio += loss_audio.item()
-			# if args.data == 'tiktok':
-			# 	loss =  loss_image + loss_text + loss_audio
-			# else:
-			# 	loss = loss_image + loss_text
 			loss = loss_image
 			loss.backward()
 			self.denoise_opt_image.step()
-			# self.denoise_opt_text.step()
-			# if args.data == 'tiktok':
-			# 	self.denoise_opt_audio.step()
 			log('Diffusion Step %d/%d' % (i, diffusionLoader.dataset.__len__() // args.batch), save=False, oneline=True)
 		log('')
 		log('Start to re-build UI matrix')
@@ -455,65 +377,13 @@ class Coach:
 					self.text_II_matrix.shape: torch.Size([6710, 6710])
 					self.audio_II_matrix.shape: torch.Size([6710, 6710])
 
-				mm_value: TODO: 左上三角矩阵
-				tensor([[1.0000, 0.6342, 0.5354, 0.4215, 0.4063, 0.3820, 0.3693],
-						[1.0000, 0.4390, 0.4328, 0.3986, 0.3962, 0.3823, 0.3818],
-						[1.0000, 0.4058, 0.3858, 0.3679, 0.3567, 0.3337, 0.3334],
-						[1.0000, 0.4111, 0.3943, 0.3858, 0.3618, 0.3527, 0.3473],
-						[1.0000, 0.3759, 0.3712, 0.3680, 0.3475, 0.3469, 0.3200]],
-					device='cuda:0')
-				mm_indices: 
-				tensor([[ 102,   93,  553, 3404, 6761, 1992,  426],
-						[   9, 2662, 6624, 1217, 4855, 1609,  166],
-						[ 171,  353, 2161,  304, 4680, 6501,  495],
-						[ 187, 4544,  572, 3441, 6797, 2323, 5547],
-						[  29, 2801, 3917, 5032, 1382, 5644, 2307]], device='cuda:0')
-
-				mm_value.flatten(): 
-				tensor([1.0000, 0.6342, 0.5354, 0.4215, 0.4063, 0.3820, 0.3693, 1.0000, 0.4390,
-						0.4328, 0.3986, 0.3962, 0.3823, 0.3818, 1.0000, 0.4058, 0.3858, 0.3679,
-						0.3567, 0.3337, 0.3334, 1.0000, 0.4111, 0.3943, 0.3858, 0.3618, 0.3527,
-						0.3473, 1.0000, 0.3759, 0.3712, 0.3680, 0.3475, 0.3469, 0.3200],
-					device='cuda:0')
-
-				batch_item: tensor([[0., 0., 0.,  ..., 0., 0., 0.],
-					[0., 0., 0.,  ..., 0., 0., 0.],
-					[1., 1., 0.,  ..., 0., 0., 0.],
-					...,
-					[0., 0., 0.,  ..., 0., 0., 0.],
-					[0., 0., 0.,  ..., 0., 0., 0.],
-					[0., 0., 0.,  ..., 0., 0., 0.]], device='cuda:0')
-			denoised_batch: tensor([[0., 0., 0.,  ..., 0., 0., 0.],
-					[0., 0., 0.,  ..., 0., 0., 0.],
-					[1., 1., 0.,  ..., 0., 0., 0.],
-					...,
-					[0., 0., 0.,  ..., 0., 0., 0.],
-					[0., 0., 0.,  ..., 0., 0., 0.],
-					[0., 0., 0.,  ..., 0., 0., 0.]], device='cuda:0')
-			denoised_prob: tensor([[0.7189, 0.6874, 0.7732,  ..., 0.7280, 0.7510, 0.7386],
-					[0.7262, 0.7112, 0.7737,  ..., 0.7225, 0.7476, 0.7356],
-					[0.7141, 0.6816, 0.7785,  ..., 0.7354, 0.7439, 0.7440],
-					...,
-					[0.7270, 0.7104, 0.7736,  ..., 0.7220, 0.7489, 0.7381],
-					[0.7223, 0.6922, 0.7718,  ..., 0.7307, 0.7507, 0.7453],
-					[0.7227, 0.7062, 0.7742,  ..., 0.7330, 0.7337, 0.7409]],
-				device='cuda:0')
-			denoised_batch * denoised_prob: tensor([[0.0000, 0.0000, 0.0000,  ..., 0.0000, 0.0000, 0.0000],
-					[0.0000, 0.0000, 0.0000,  ..., 0.0000, 0.0000, 0.0000],
-					[0.7141, 0.6816, 0.0000,  ..., 0.0000, 0.0000, 0.0000],
-					...,
-					[0.0000, 0.0000, 0.0000,  ..., 0.0000, 0.0000, 0.0000],
-					[0.0000, 0.0000, 0.0000,  ..., 0.0000, 0.0000, 0.0000],
-					[0.0000, 0.0000, 0.0000,  ..., 0.0000, 0.0000, 0.0000]],
-				device='cuda:0')
 				'''
 				denoised_batch, denoised_prob = self.diffusion_model.p_sample(self.denoise_model_image, batch_item, args.sampling_steps, args.bayesian_samplinge_schedule)
 				# denoised_batch += batch_item
 				# print("batch_item:", batch_item)
 				# print("denoised_batch:", denoised_batch) 
 				# print("denoised_prob:", denoised_prob)
-				# 获取每行的top-k索引（indices的形状为 [batch_size, k]）
-				_, indices = torch.topk(denoised_prob, k=args.gen_topk, dim=1) # k越大好，说明生成的图是有信息的
+				_, indices = torch.topk(denoised_prob, k=args.gen_topk, dim=1) 
 				mask = torch.zeros_like(denoised_prob, dtype=torch.bool).scatter_(1, indices, True)
 				denoised_batch = torch.where(mask, denoised_batch, batch_item)
 				# print("denoised_batch_top-k:", denoised_batch) 
@@ -529,9 +399,16 @@ class Coach:
 						image_modality='image_modal',
 						text_modality='text_modal',
 						audio_modality='audio_modal',
-						sample_ratio = args.sample_ratio #随机采样有效
+						sample_ratio = args.sample_ratio 
 						)
+
+						results_without_mid = DebiasingMetrics().evaluate_debiasing_effect(denoised_batch.detach().cpu().numpy(), batch_item.detach().cpu().numpy())
+						bias_rate_without_mid += results_without_mid['bias_rate']
+						kl_rate_without_mid += results_without_mid['kl_divergence'] 
 						denoised_batch = image_interest_judge.interest_query_debiase()
+						results_with_mid = DebiasingMetrics().evaluate_debiasing_effect(denoised_batch.detach().cpu().numpy(), batch_item.detach().cpu().numpy())
+						bias_rate_with_mid  += results_with_mid['bias_rate']
+						kl_rate_with_mid  += results_with_mid['kl_divergence']
 					else: 
 						image_interest_judge = InterestDebiase(
 						origin_interaction_graph = batch_item,
@@ -540,37 +417,18 @@ class Coach:
 						image_modality='image_modal',
 						text_modality='text_modal',
 						audio_modality=None,
-						sample_ratio = args.sample_ratio #随机采样有效
+						sample_ratio = args.sample_ratio 
 						)
+						
+						results_without_mid = DebiasingMetrics().evaluate_debiasing_effect(denoised_batch.detach().cpu().numpy(), batch_item.detach().cpu().numpy())
+						bias_rate_without_mid += results_without_mid['bias_rate']
+						kl_rate_without_mid += results_without_mid['kl_divergence'] 
 						denoised_batch = image_interest_judge.interest_query_debiase()
+						results_with_mid = DebiasingMetrics().evaluate_debiasing_effect(denoised_batch.detach().cpu().numpy(), batch_item.detach().cpu().numpy())
+						bias_rate_with_mid += results_with_mid['bias_rate']
+						kl_rate_with_mid  += results_with_mid['kl_divergence']
 				# else:
 				# 	log("-------------------------->Attention!! You Don`t Open The InterestDebiase Module------------------")
-
-				if args.OpenVisual == True:
-					log('-------------------------->Open The Visual Function------------------')
-					save_graph(batch_item, ep, batch_id, 'origin_graph')
-					save_graph(denoised_batch, ep, batch_id, 'gen_graph')
-				# text_interest_judge = InterestDebiase(
-				# 	origin_interaction_graph = batch_item,
-				# 	generated_interaction_graph = denoised_batch,
-				# 	interest_cluster_space_dict = self.multimodal_interest_space,
-				# 	modality='text_modal',
-				# 	sample_ratio = args.sample_ratio #随机采样有效
-				# )
-				# denoised_batch_text = text_interest_judge.interest_query_debiase()
-
-				# if args.data == 'tiktok':
-				# 	audio_interest_judge = InterestDebiase(
-				# 	origin_interaction_graph = batch_item,
-				# 	generated_interaction_graph = denoised_batch,
-				# 	interest_cluster_space_dict = self.multimodal_interest_space,
-				# 	modality='audio_modal',
-				# 	sample_ratio = args.sample_ratio #随机采样有效
-				# )
-				# 	denoised_batch_audio = audio_interest_judge.interest_query_debiase()
-				# 	denoised_batch = (denoised_batch_image + denoised_batch_text +  denoised_batch_audio)  
-				# else:
-				# 	denoised_batch = (denoised_batch_image + denoised_batch_text) 
 
 				# print("batch_item:", batch_item)
 				# print("denoised_batch:", denoised_batch) 
@@ -584,36 +442,7 @@ class Coach:
 						i_list_image.append(int(indices_[i][j].cpu().numpy()))
 						edge_list_image.append(1.0)
 
-				# # # text
-				# denoised_batch_text, denoised_prob_text = self.diffusion_model.p_sample(self.denoise_model_text, batch_item, args.sampling_steps, args.bayesian_samplinge_schedule)
-				# # denoised_batch_text = self.diffusion_model.p_sample(self.denoise_model_text, batch_item, args.sampling_steps, args.bayesian_samplinge_schedule)
-				# # denoised_batch += batch_item
-				# _, indices = torch.topk(denoised_prob_text, k=args.gen_topk, dim=1) # k越大好，说明生成的图是有信息的
-				# mask = torch.zeros_like(denoised_prob_text, dtype=torch.bool).scatter_(1, indices, True)
-				# denoised_batch_text = torch.where(mask, denoised_batch_text, batch_item)
-				# top_item, indices_ = torch.topk(denoised_batch_text * denoised_prob_text , k=args.rebuild_k)
-				# for i in range(batch_index.shape[0]):
-				# 	for j in range(indices_[i].shape[0]): 
-				# 		u_list_text.append(int(batch_index[i].cpu().numpy()))
-				# 		i_list_text.append(int(indices_[i][j].cpu().numpy()))
-				# 		edge_list_text.append(1.0)
-
-				# if args.data == 'tiktok':
-				# # 	# audio
-				# 	denoised_batch_audio, denoised_prob_audio = self.diffusion_model.p_sample(self.denoise_model_audio, batch_item, args.sampling_steps, args.bayesian_samplinge_schedule)
-				# 	_, indices = torch.topk(denoised_prob_audio, k=args.gen_topk, dim=1) # k越大好，说明生成的图是有信息的
-				# 	mask = torch.zeros_like(denoised_prob_audio, dtype=torch.bool).scatter_(1, indices, True)
-				# 	denoised_batch_audio = torch.where(mask, denoised_batch_audio, batch_item)
-
-				# 	# denoised_batch_audio = self.diffusion_model.p_sample(self.denoise_model_audio, batch_item, args.sampling_steps, args.bayesian_samplinge_schedule)
-				# # 	# denoised_batch += batch_item
-				# 	top_item, indices_ = torch.topk(denoised_batch_audio * denoised_prob_audio, k=args.rebuild_k)
-				# 	for i in range(batch_index.shape[0]):
-				# 		for j in range(indices_[i].shape[0]): 
-				# 			u_list_audio.append(int(batch_index[i].cpu().numpy()))
-				# 			i_list_audio.append(int(indices_[i][j].cpu().numpy()))
-				# 			edge_list_audio.append(1.0)
-
+	
 			# image
 			u_list_image = np.array(u_list_image)
 			i_list_image = np.array(i_list_image)
@@ -647,7 +476,7 @@ class Coach:
 				negs: tensor([4984,  666, 2158,  ..., 6698, 5829, 4554], device='cuda:0')    neg item id
 				ancs.shape: torch.Size([1024]) poss.shape: torch.Size([1024]) negs.shape: torch.Size([1024])
 
-				self.handler.torchBiAdj:  生成(user+item, user+item)稀疏邻接矩阵 torchBiAdj.shape: torch.Size([16018, 16018])
+				self.handler.torchBiAdj:  (user+item, user+item) sparse adj matrix torchBiAdj.shape: torch.Size([16018, 16018])
 					tensor(indices=tensor([[    0, 10193, 10695,  ..., 16015, 16016, 16017],
 										[    0,     0,     0,  ..., 16015, 16016, 16017]]),
 						values=tensor([0.2500, 0.1443, 0.0606,  ..., 1.0000, 1.0000, 1.0000]),
@@ -679,24 +508,10 @@ class Coach:
 			self.opt.zero_grad()
 
 			if args.data == 'tiktok':
-				# diffusion_ui_adj = self.image_UI_matrix
-				#diffusion_ui_adj = (self.image_UI_matrix + self.text_UI_matrix + self.audio_UI_matrix) / 3
-				# print("self.image_UI_matrix:", )
 				usrEmbeds, itmEmbeds, side_Embeds, content_Emebeds = self.model.forward(self.handler.R, self.handler.torchBiAdj, self.image_UI_matrix, self.image_II_matrix, self.text_II_matrix, self.audio_II_matrix, None) 
-				# usrEmbeds, itmEmbeds, side_Embeds, content_Emebeds = self.model.forward(self.handler.R, self.handler.torchBiAdj, self.image_UI_matrix, self.text_UI_matrix, self.audio_UI_matrix, self.image_II_matrix, self.text_II_matrix, self.audio_II_matrix, None) 
-				# usrEmbeds, itmEmbeds, side_Embeds, content_Emebeds = self.model.forward(self.handler.R, self.handler.torchBiAdj, self.image_UI_matrix, self.text_UI_matrix, self.audio_UI_matrix, self.image_II_matrix, self.text_II_matrix, self.audio_II_matrix, None) 
-				# usrEmbeds, itmEmbeds = self.model.forward_MM(self.handler.torchBiAdj, self.image_UI_matrix, self.text_UI_matrix, self.audio_UI_matrix)
 			else:
-				#diffusion_ui_adj = self.image_UI_matrix  + self.text_UI_matrix
-				# self.audio_UI_matrix, self.audio_II_matrix = None, None
 				self.audio_UI_matrix, self.audio_II_matrix = None, None
 				usrEmbeds, itmEmbeds, side_Embeds, content_Emebeds = self.model.forward(self.handler.R, self.handler.torchBiAdj, self.image_UI_matrix, self.image_II_matrix, self.text_II_matrix, self.audio_II_matrix, None) 
-				# usrEmbeds, itmEmbeds, side_Embeds, content_Emebeds = self.model.forward(self.handler.R, self.handler.torchBiAdj, self.image_UI_matrix, self.text_UI_matrix, self.audio_UI_matrix, self.image_II_matrix, self.text_II_matrix, self.audio_II_matrix, None) 
-				# usrEmbeds, itmEmbeds, side_Embeds, content_Emebeds = self.model.forward(self.handler.R, self.handler.torchBiAdj, self.image_UI_matrix, self.image_II_matrix, self.text_II_matrix, self.audio_II_matrix, None) 
-				#usrEmbeds, itmEmbeds, side_Embeds, content_Emebeds = self.model.forward(self.handler.R, self.handler.torchBiAdj, self.image_UI_matrix, self.text_UI_matrix, self.audio_UI_matrix, self.image_II_matrix, self.text_II_matrix, self.audio_II_matrix, None) 
-				# usrEmbeds, itmEmbeds, side_Embeds, content_Emebeds = self.model.forward(self.handler.R, self.handler.torchBiAdj, self.image_UI_matrix, self.text_UI_matrix, self.image_II_matrix, self.text_II_matrix,self.audio_II_matrix, None)
-
-				# usrEmbeds, itmEmbeds = self.model.forward_MM(self.handler.torchBiAdj, self.image_UI_matrix, self.text_UI_matrix)
 
 			# Caculate Loss
 			ancEmbeds = usrEmbeds[ancs]
@@ -704,27 +519,20 @@ class Coach:
 			negEmbeds = itmEmbeds[negs]
 
 			bprLoss, _,  regLoss = self.model.bpr_loss(ancEmbeds, posEmbeds, negEmbeds)
-			# scoreDiff = pairPredict(ancEmbeds, posEmbeds, negEmbeds)
-			# bprLoss = - (scoreDiff).sigmoid().log().sum() / args.batch
-			# regLoss = self.model.reg_loss() * args.reg
 			loss = bprLoss + regLoss
 			epRecLoss += bprLoss.item()
 			epLoss += loss.item()
 
-			# 计算对比损失
-			# 剥离出用户侧，物品测的 embedding
+			# caculate contrastive los
 			side_embeds_users, side_embeds_items = torch.split(side_Embeds, [args.user, args.item], dim=0)
 			content_embeds_user, content_embeds_items = torch.split(content_Emebeds, [args.user, args.item], dim=0)
 
-			# 物品-物品的对比损失
+			# item-item contrastive loss
 			clLoss1 = self.model.infoNCE_loss(side_embeds_items[poss], content_embeds_items[poss], args.temp) +  self.model.infoNCE_loss(side_embeds_users[ancs], content_embeds_user[ancs], args.temp) 
-			# 用户-物品的对比损失
+			# user-item contrastive loss
 			clLoss2 = self.model.infoNCE_loss(usrEmbeds[ancs], content_embeds_items[poss], args.temp) +  self.model.infoNCE_loss(usrEmbeds[ancs], side_embeds_items[poss], args.temp) 
-			# 
-			# clLoss = clLoss1 * args.ssl_reg  + clLoss2 * args.ssl_reg
 
 			clLoss = clLoss1 * args.ssl_reg1  + clLoss2 * args.ssl_reg2
-
 
 			loss += clLoss
 			epClLoss += clLoss.item()
@@ -748,8 +556,10 @@ class Coach:
 		ret['Di text loss'] = epDiLoss_text / (diffusionLoader.dataset.__len__() // args.batch)
 		if args.data == 'tiktok':
 			ret['Di audio loss'] = epDiLoss_audio / (diffusionLoader.dataset.__len__() // args.batch)
+		ret['bias_rate_without_mid'] = bias_rate_without_mid / (diffusionLoader.dataset.__len__() // args.batch)
+		ret['kl_rate_without_mid'] = kl_rate_without_mid  / (diffusionLoader.dataset.__len__() // args.batch)
+	
 		return ret
-
 
 
 	def testEpoch(self):
@@ -761,25 +571,10 @@ class Coach:
 
 		if args.data == 'tiktok':
 			usrEmbeds, itmEmbeds, side_Embeds, content_Emebeds = self.model.forward(self.handler.R, self.handler.torchBiAdj, self.image_UI_matrix, self.image_II_matrix, self.text_II_matrix, self.audio_II_matrix, None) 
-			#usrEmbeds, itmEmbeds, side_Embeds, content_Emebeds = self.model.forward(self.handler.R, self.handler.torchBiAdj, self.image_UI_matrix, self.text_UI_matrix, self.audio_UI_matrix, self.image_II_matrix, self.text_II_matrix, self.audio_II_matrix, None) 
-			#usrEmbeds, itmEmbeds, side_Embeds, content_Emebeds = self.model.forward(self.handler.R, self.handler.torchBiAdj, self.image_UI_matrix, self.image_II_matrix, self.text_II_matrix, self.audio_II_matrix, None) 
-			# usrEmbeds, itmEmbeds, side_Embeds, content_Emebeds = self.model.forward(self.handler.R, self.handler.torchBiAdj, self.image_UI_matrix, self.text_UI_matrix, self.audio_UI_matrix, self.image_II_matrix, self.text_II_matrix, self.audio_II_matrix, None) 
-			#usrEmbeds, itmEmbeds, side_Embeds, content_Emebeds = self.model.forward(self.handler.R, self.handler.torchBiAdj, self.image_UI_matrix, self.text_UI_matrix, self.audio_UI_matrix, self.image_II_matrix, self.text_II_matrix, self.audio_II_matrix, None) 
-			#diffusion_ui_adj = (self.image_UI_matrix  + self.text_UI_matrix +  self.audio_UI_matrix) / 3
-			#print("diffusion_ui_adj:", diffusion_ui_adj)
-			#usrEmbeds, itmEmbeds, side_Embeds, content_Emebeds = self.model.forward(self.handler.R, self.handler.torchBiAdj, diffusion_ui_adj, self.image_II_matrix, self.text_II_matrix, self.audio_II_matrix, None) 
-			# usrEmbeds, itmEmbeds = self.model.forward_MM(self.handler.torchBiAdj, self.image_UI_matrix, self.text_UI_matrix, self.audio_UI_matrix)
 		else:
-			#diffusion_ui_adj = self.image_UI_matrix  + self.text_UI_matrix
 			self.audio_UI_matrix, self.audio_II_matrix = None, None
 			usrEmbeds, itmEmbeds, side_Embeds, content_Emebeds = self.model.forward(self.handler.R, self.handler.torchBiAdj, self.image_UI_matrix, self.image_II_matrix, self.text_II_matrix, self.audio_II_matrix, None) 
-			#usrEmbeds, itmEmbeds, side_Embeds, content_Emebeds = self.model.forward(self.handler.R, self.handler.torchBiAdj, self.image_UI_matrix, self.text_UI_matrix, self.audio_UI_matrix, self.image_II_matrix, self.text_II_matrix, self.audio_II_matrix, None) 
-			#usrEmbeds, itmEmbeds, side_Embeds, content_Emebeds = self.model.forward(self.handler.R, self.handler.torchBiAdj, self.image_UI_matrix, self.image_II_matrix, self.text_II_matrix, self.audio_II_matrix, None) 
-			#usrEmbeds, itmEmbeds, side_Embeds, content_Emebeds = self.model.forward(self.handler.R, self.handler.torchBiAdj, self.image_UI_matrix, self.text_UI_matrix, self.audio_UI_matrix, self.image_II_matrix, self.text_II_matrix, self.audio_II_matrix, None) 
-			# usrEmbeds, itmEmbeds, side_Embeds, content_Emebeds = self.model.forward(self.handler.R, self.handler.torchBiAdj, self.image_UI_matrix, self.image_II_matrix, self.text_II_matrix, self.audio_II_matrix, None) 
-			# usrEmbeds, itmEmbeds, side_Embeds, content_Emebeds = self.model.forward(self.handler.R, self.handler.torchBiAdj, self.image_UI_matrix, self.text_UI_matrix, self.audio_UI_matrix, self.image_II_matrix, self.text_II_matrix, self.audio_II_matrix, None) 
-			# usrEmbeds, itmEmbeds = self.model.forward_MM(self.handler.torchBiAdj, self.image_UI_matrix, self.text_UI_matrix)
-	
+
 		# Inference
 		for usr, trnMask in tstLoader:
 			i += 1
@@ -819,19 +614,6 @@ class Coach:
 			allNdcg += ndcg
 			allPrecision += precision
 		return allRecall, allNdcg, allPrecision
-
-
-def save_graph(denoised_batch, ep, i, name):
-	'''
-		save graph
-	'''
-	import os 
-	save_dir = os.path.join('./visualizations/',f'{name}', f'epoch_{ep}', f'batch_{i}')
-	os.makedirs(save_dir, exist_ok=True)
-	try:
-		np.save(os.path.join(save_dir, 'denoised_batch.npy'), denoised_batch.cpu().numpy())
-	except Exception as e:
-		log(f'save image.npy false: {str(e)}')
 
 
 def seed_it(seed):
