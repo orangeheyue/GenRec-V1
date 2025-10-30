@@ -15,10 +15,9 @@
 ![ACMMM](https://img.shields.io/badge/ACM-MM25-1B5E20) ![GenRec](https://img.shields.io/badge/Version-GenRecV1-orange) ![License](https://img.shields.io/badge/License-MIT-B39DDB) ![python](https://img.shields.io/badge/python-3.8+-blue) ![pytorch](https://img.shields.io/badge/pytorch-2.0-FFA000) ![Stars](https://img.shields.io/github/stars/orangeheyue/GenRec-V1?style=social)
 
 ## News
-This is the official code repository for GenRec-V1 ("Haitang, 海棠"), accompanying our paper: [Flip is Better than Noise: Unbiased Interest Generation for Multimedia Recommendation](https://dl.acm.org/doi/pdf/10.1145/3746027.3755743)
+This is the official code repository for GenRec-V1 ("Haitang, 海棠"), accompanying our paper: 
 
-
->**[ACMMM 2025]** Flip is Better than Noise: Unbiased Interest Generation for Multimedia Recommendation
+>**[ACMMM 2025]** [Flip is Better than Noise: Unbiased Interest Generation for Multimedia Recommendation](https://dl.acm.org/doi/pdf/10.1145/3746027.3755743)
 <img src="images/genrec-v1.png" width="900px" height="250px"/>
 
 ## 🌟 Key Highlights​
@@ -56,31 +55,24 @@ This is the official code repository for GenRec-V1 ("Haitang, 海棠"), accompan
 
 ## 🚀 Quick Start​
 ### Data Preparation​
-Download dataset from Google Drive:​ TikTok/Baby/Sports​
-The dataset includes:​
-Text features (extracted via Sentence-Transformers)​
-Image features (extracted via CNN)​
-User-item interaction records​
-Place the downloaded data folder (e.g., TikTok/) into the datasets/ directory.
-
-### Usage
-1. Place the downloaded data (e.g. `TikTok/Sports`) into the `Datasets` directory.
-2. Execute the following command:  
-- `python Main.py --data tiktok`  
-- `python Main.py --data Sports`  
-
-
-### Dataset
-1. tiktok
+1. tiktok: 
 The tiktok dataset is already ready in ./datasets/tiktok/ for quick start.
-1. baby
+1. baby: 
 If you want to use baby dataset, please unzip ./datasets/baby/image_feat.npy.zip
-1. sports
+1. sports: 
 Due to the network limition of big file, sports dataset available on Google Drive: https://drive.google.com/file/d/1PR_IK5-xMwSso2JPHZ93k3eMQ0_s9JDx/view?usp=share_link
 [TikTok/Baby/Sports](https://arxiv.org/abs/2406.11781)
 
 To ensure a fair comparison, we conduct our experiments based on the research work of the University of Hong Kong team on DiffMM, adopting the open dataset and preprocessing method they provided. 
 This dataset is referenced from DiffMM: Multi-Modal Diffusion Model for Recommendation (ACM MM 2024 Oral). We sincerely appreciate the outstanding contributions made by the DiffMM team to the research in the field of multimodal recommendation systems. 
+
+
+### Usage
+1. Place the downloaded data (e.g. `TikTok/Sports`) into the `Datasets` directory.
+2. Execute the following basic command:  
+- `python Main.py --data tiktok`  
+- `python Main.py --data Sports`  
+
 
 ## Enviroment Requirement
 - Python >= 3.8
@@ -103,4 +95,8 @@ If you find GenRec-V1 useful in your research, please consider citing our [GenRe
 ```
 
 ## 📧 Contact​
-We sincerely hope that GenRec-V1(海棠) can provide as much assistance as possible for your research work. We also warmly welcome you to further develop based on the GenRec framework and jointly explore the frontiers of generative multimodal recommendation technology with us. For questions or issues, please contact [orangeai-research@gmail.com, orangeheyue@gmail.com]
+🌸🌸🌸🌸
+GenRec-v1 is an all-new generative multimodal recommendation algorithm. Version 1 is named "Haitang, 海棠" (referring to the Chinese flowering crabapple), a name inspired by the moment we witnessed Haitang flowers in full bloom at 4 a.m. during our research process. Looking ahead, we will continue to iterate on the GenRec series, so stay tuned!
+💐💐💐💐
+We sincerely hope that GenRec-V1(海棠) can provide as much assistance as possible for your research work. We also warmly welcome you to further develop based on the GenRec framework and jointly explore the frontiers of generative multimodal recommendation technology with us. 
+For questions or issues, please contact [orangeai-research@gmail.com, orangeheyue@gmail.com]
