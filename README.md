@@ -1,5 +1,4 @@
-# GenRec-V1| Flip is Better than Noise: Unbiased Interest Generation for Multimedia Recommendation
-
+<!-- # GenRec-V1| Flip is Better than Noise: Unbiased Interest Generation for Multimedia Recommendation -->
 <!-- PROJECT LOGO -->
 <br />
 <div align="center">
@@ -99,4 +98,4 @@ If you find GenRec-V1 useful in your research, please consider citing our [GenRe
 GenRec-v1 is an all-new generative multimodal recommendation algorithm. Version 1 is named "Haitang, 海棠" (referring to the Chinese flowering crabapple), a name inspired by the moment we witnessed Haitang flowers in full bloom at 4 a.m. during our research process. Looking ahead, we will continue to iterate on the GenRec series, so stay tuned!
 💐💐💐💐
 We sincerely hope that GenRec-V1(海棠) can provide as much assistance as possible for your research work. We also warmly welcome you to further develop based on the GenRec framework and jointly explore the frontiers of generative multimodal recommendation technology with us. 
-For questions or issues, please contact [orangeai-research@gmail.com, orangeheyue@gmail.com]
+For questions or issues, please contact us.
