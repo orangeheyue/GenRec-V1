@@ -1,6 +1,6 @@
 # Author: OrangeAI Research Team
 # Time: 2025-03-24
-# implement: GenRec-V1 | Flip is Better than Noise: Unbiased Interest Generation for Multimedia Recommendation
+# Official implementation: GenRec-V1 | Flip is Better than Noise: Unbiased Interest Generation for Multimedia Recommendation
 
 import torch
 from torch.utils.tensorboard import SummaryWriter
@@ -20,7 +20,7 @@ import math
 import setproctitle
 from scipy.sparse import coo_matrix
 import json
-from debiased_rate import DebiasingMetrics
+
 
 class Coach:
 	def __init__(self, handler):
@@ -224,7 +224,7 @@ class Coach:
 		trnLoader.dataset.negSampling()
 		epLoss, epRecLoss, epClLoss = 0, 0, 0
 		# add Bias_Rate, KL_Rate
-		bias_rate_without_mid, kl_rate_without_mid, bias_rate_with_mid, kl_rate_with_mid = 0, 0, 0, 0
+		# bias_rate_without_mid, kl_rate_without_mid, bias_rate_with_mid, kl_rate_with_mid = 0, 0, 0, 0
 		
 		epDiLoss = 0
 		epDiLoss_image, epDiLoss_text = 0, 0
@@ -406,13 +406,13 @@ class Coach:
 						sample_ratio = args.sample_ratio 
 						)
 
-						results_without_mid = DebiasingMetrics().evaluate_debiasing_effect(denoised_batch.detach().cpu().numpy(), batch_item.detach().cpu().numpy())
-						bias_rate_without_mid += results_without_mid['bias_rate']
-						kl_rate_without_mid += results_without_mid['kl_divergence'] 
+						# results_without_mid = DebiasingMetrics().evaluate_debiasing_effect(denoised_batch.detach().cpu().numpy(), batch_item.detach().cpu().numpy())
+						# bias_rate_without_mid += results_without_mid['bias_rate']
+						# kl_rate_without_mid += results_without_mid['kl_divergence'] 
 						denoised_batch = image_interest_judge.interest_query_debiase()
-						results_with_mid = DebiasingMetrics().evaluate_debiasing_effect(denoised_batch.detach().cpu().numpy(), batch_item.detach().cpu().numpy())
-						bias_rate_with_mid  += results_with_mid['bias_rate']
-						kl_rate_with_mid  += results_with_mid['kl_divergence']
+						# results_with_mid = DebiasingMetrics().evaluate_debiasing_effect(denoised_batch.detach().cpu().numpy(), batch_item.detach().cpu().numpy())
+						# bias_rate_with_mid  += results_with_mid['bias_rate']
+						# kl_rate_with_mid  += results_with_mid['kl_divergence']
 					else: 
 						image_interest_judge = InterestDebiase(
 						origin_interaction_graph = batch_item,
@@ -424,13 +424,13 @@ class Coach:
 						sample_ratio = args.sample_ratio 
 						)
 						
-						results_without_mid = DebiasingMetrics().evaluate_debiasing_effect(denoised_batch.detach().cpu().numpy(), batch_item.detach().cpu().numpy())
-						bias_rate_without_mid += results_without_mid['bias_rate']
-						kl_rate_without_mid += results_without_mid['kl_divergence'] 
+						# results_without_mid = DebiasingMetrics().evaluate_debiasing_effect(denoised_batch.detach().cpu().numpy(), batch_item.detach().cpu().numpy())
+						# bias_rate_without_mid += results_without_mid['bias_rate']
+						# kl_rate_without_mid += results_without_mid['kl_divergence'] 
 						denoised_batch = image_interest_judge.interest_query_debiase()
-						results_with_mid = DebiasingMetrics().evaluate_debiasing_effect(denoised_batch.detach().cpu().numpy(), batch_item.detach().cpu().numpy())
-						bias_rate_with_mid += results_with_mid['bias_rate']
-						kl_rate_with_mid  += results_with_mid['kl_divergence']
+						# results_with_mid = DebiasingMetrics().evaluate_debiasing_effect(denoised_batch.detach().cpu().numpy(), batch_item.detach().cpu().numpy())
+						# bias_rate_with_mid += results_with_mid['bias_rate']
+						# kl_rate_with_mid  += results_with_mid['kl_divergence']
 				# else:
 				# 	log("-------------------------->Attention!! You Don`t Open The InterestDebiase Module------------------")
 
@@ -560,8 +560,8 @@ class Coach:
 		ret['Di text loss'] = epDiLoss_text / (diffusionLoader.dataset.__len__() // args.batch)
 		if args.data == 'tiktok':
 			ret['Di audio loss'] = epDiLoss_audio / (diffusionLoader.dataset.__len__() // args.batch)
-		ret['bias_rate_without_mid'] = bias_rate_without_mid / (diffusionLoader.dataset.__len__() // args.batch)
-		ret['kl_rate_without_mid'] = kl_rate_without_mid  / (diffusionLoader.dataset.__len__() // args.batch)
+		# ret['bias_rate_without_mid'] = bias_rate_without_mid / (diffusionLoader.dataset.__len__() // args.batch)
+		# ret['kl_rate_without_mid'] = kl_rate_without_mid  / (diffusionLoader.dataset.__len__() // args.batch)
 	
 		return ret
 
