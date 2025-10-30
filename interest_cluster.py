@@ -1,4 +1,4 @@
-# Desc: Clustering for the multimodal features.
+# Desc: MultimodalCluster & InterestDebiase for the multimodal features.
 # Author: OrangeAI Research Team
 # Time: 2025-03-24
 # implement: GenRec-V1 | Flip is Better than Noise: Unbiased Interest Generation for Multimedia Recommendation
